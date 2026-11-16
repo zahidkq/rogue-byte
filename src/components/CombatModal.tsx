@@ -1,0 +1,504 @@
+import React, { useEffect, useState } from 'react';
+import { Backpack, CornerUpLeft, Crown, MessageSquareWarning, Shield, Sword, Zap } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { CombatState, HeroState, InventoryItem, InventoryItemId } from '../types/game';
+import { SegmentedBar } from './SegmentedBar';
+import { EnemySprite, HeroSprite, ItemIcon } from './Sprites';
+
+interface CombatModalProps {
+  combat: CombatState;
+  hero: HeroState;
+  inventory: InventoryItem[];
+  onAttack: () => void;
+  onDefend: () => void;
+  onUseItem: (itemId: InventoryItemId) => void;
+  onFlee: () => void;
+  onVictoryContinue: () => void;
+}
+
+export const CombatModal: React.FC<CombatModalProps> = ({
+  combat,
+  hero,
+  inventory,
+  onAttack,
+  onDefend,
+  onUseItem,
+  onFlee,
+  onVictoryContinue,
+}) => {
+  const [itemMenuOpen, setItemMenuOpen] = useState(false);
+
+  const usableItems = inventory.filter((i) => i.usableInCombat && i.quantity > 0);
+  const isPlayerTurn = combat.phase === 'PLAYER_TURN';
+  const isVictory = combat.phase === 'VICTORY';
+  const isBoss = Boolean(combat.enemy.isBoss || combat.enemy.archetypeId === 'floor_warden');
+
+  useEffect(() => {
+    if (!isPlayerTurn) {
+      setItemMenuOpen(false);
+    }
+  }, [isPlayerTurn]);
+
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (isVictory) {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onVictoryContinue();
+        }
+        return;
+      }
+      if (e.key === 'Escape' && itemMenuOpen) {
+        e.preventDefault();
+        setItemMenuOpen(false);
+        return;
+      }
+      if (!isPlayerTurn) return;
+      if (e.key === '1' || e.key === ' ') {
+        e.preventDefault();
+        onAttack();
+      } else if (e.key === 'Enter' && !(document.activeElement instanceof HTMLButtonElement)) {
+        e.preventDefault();
+        onAttack();
+      } else if (e.key === '2' || e.key.toLowerCase() === 'd') {
+        e.preventDefault();
+        onDefend();
+      } else if (e.key === '3' || e.key.toLowerCase() === 'i') {
+        e.preventDefault();
+        setItemMenuOpen((prev) => !prev);
+      } else if (e.key === '4' || e.key.toLowerCase() === 'f') {
+        e.preventDefault();
+        onFlee();
+      }
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [isPlayerTurn, isVictory, itemMenuOpen, onAttack, onDefend, onFlee, onVictoryContinue]);
+
+  const tierLabel = isBoss
+    ? 'Final Sanctum Boss'
+    : combat.enemy.tier === 'warden'
+    ? 'Floor Warden'
+    : combat.enemy.tier === 'elite'
+    ? 'Elite Hostile'
+    : 'Hostile Unit';
+
+  const tierColor = isBoss
+    ? 'text-[#d5c3ff]'
+    : combat.enemy.tier === 'warden'
+    ? 'text-[#ffc174]'
+    : combat.enemy.tier === 'elite'
+    ? 'text-[#d5c3ff]'
+    : 'text-[#ffb4ab]';
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-[#060e20]/88 backdrop-blur-md"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Combat encounter with ${combat.enemy.name}`}
+    >
+      <div
+        className={`w-full max-w-2xl rounded-lg bg-[#0f172a] overflow-hidden flex flex-col border ${
+          isBoss
+            ? 'border-[#8b5cf6]/75 shadow-[0_0_36px_rgba(139,92,246,0.28),0_18px_46px_rgba(0,0,0,0.9)]'
+            : 'border-[#f59e0b]/45 shadow-[0_0_24px_rgba(245,158,11,0.18),0_16px_40px_rgba(0,0,0,0.85)]'
+        }`}
+      >
+        {/* Top Encounter Header */}
+        <div
+          className={`px-4 sm:px-6 py-3.5 border-b border-white/10 flex items-center justify-between gap-4 ${
+            isBoss ? 'bg-gradient-to-r from-[#1e1b4b] via-[#171f33] to-[#2e1065]/70' : 'bg-[#131b2e]'
+          }`}
+        >
+          <div className="flex items-center gap-2.5">
+            {isBoss ? (
+              <Crown className="w-4 h-4 text-[#fbbf24]" />
+            ) : (
+              <Sword className="w-4 h-4 text-[#f59e0b]" />
+            )}
+            <h2 className="font-display text-base sm:text-lg font-bold text-[#dae2fd]">
+              {isBoss ? `Boss Encounter · ${combat.enemy.name}` : 'Tactical Encounter'}
+            </h2>
+          </div>
+          <div className="flex items-center gap-2 text-xs font-mono text-[#a08e7a] tabular-nums">
+            <span>Turn {combat.turnNumber}</span>
+            <span aria-hidden="true">·</span>
+            <span className={tierColor}>{tierLabel}</span>
+          </div>
+        </div>
+
+        {/* Dynamic Boss Trash-Talk Speech Bubble */}
+        {isBoss && (
+          <div className="px-4 sm:px-6 pt-4 bg-[#0b1326]">
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={combat.bossRoast || 'initial-boss-taunt'}
+                initial={{ opacity: 0, y: -6, scale: 0.98 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 4 }}
+                transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+                className="relative rounded-lg bg-[#1e1b4b]/75 border border-[#8b5cf6]/55 px-4 py-3 flex items-start gap-3 shadow-[0_0_18px_rgba(139,92,246,0.14)]"
+              >
+                <MessageSquareWarning className="w-4 h-4 text-[#d5c3ff] shrink-0 mt-0.5" />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-2 text-[11px] font-mono text-[#d5c3ff]">
+                    <span>{combat.enemy.name}</span>
+                    {combat.bossRoastLoading && (
+                      <span className="text-[#a08e7a]">Responding...</span>
+                    )}
+                  </div>
+                  <p className="text-xs sm:text-sm text-[#dae2fd] mt-0.5 leading-relaxed">
+                    “{combat.bossRoast || 'Is that the best gear you could scavenge before stepping into my sanctum?'}”
+                  </p>
+                </div>
+              </motion.div>
+            </AnimatePresence>
+          </div>
+        )}
+
+        {/* Combatants Grid */}
+        <div className="p-4 sm:p-6 grid grid-cols-1 sm:grid-cols-2 gap-4 bg-[#0b1326]">
+          {/* Hero Card */}
+          <div
+            className={`rounded-lg bg-[#131b2e] border p-4 flex flex-col gap-3 transition-colors ${
+              combat.lastHeroHit
+                ? 'animate-hit-shake border-[#ef4444]'
+                : combat.heroDefending
+                ? 'border-[#06b6d4]'
+                : 'border-white/10'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <div
+                key={`hero-avatar-${combat.actionTick ?? 0}-${combat.lastHeroHit ? 'hit' : 'ok'}`}
+                className={`relative w-14 h-14 rounded-[4px] bg-[#060e20] border flex items-center justify-center shrink-0 overflow-visible transition-colors ${
+                  combat.lastHeroHit
+                    ? 'border-[#ef4444] animate-hero-flinch shadow-[0_0_14px_rgba(239,68,68,0.45)]'
+                    : combat.heroAction === 'attack'
+                    ? 'border-[#f59e0b] animate-hero-lunge shadow-[0_0_16px_rgba(245,158,11,0.45)]'
+                    : combat.heroDefending
+                    ? 'border-[#06b6d4] shadow-[0_0_14px_rgba(6,182,212,0.35)]'
+                    : 'border-[#f59e0b]/30'
+                }`}
+              >
+                <div className="w-11 h-11 animate-hero-idle flex items-center justify-center">
+                  <HeroSprite classId={hero.classId} className="w-full h-full" />
+                </div>
+                {combat.lastHeroHit && (
+                  <div
+                    className="pointer-events-none absolute inset-0 rounded-[4px] bg-[#ef4444]/65 animate-hit-flash"
+                    aria-hidden="true"
+                  />
+                )}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="font-display text-base font-bold text-[#dae2fd] truncate">
+                  {hero.playerName ? `${hero.playerName} · ${hero.name}` : hero.name}
+                </div>
+                <div className="flex items-center gap-2 text-xs font-mono text-[#a08e7a] tabular-nums mt-0.5">
+                  <span>ATK {hero.atk + combat.heroBonusAtk}</span>
+                  <span aria-hidden="true">·</span>
+                  <span>DEF {hero.def}</span>
+                  {isBoss && (
+                    <>
+                      <span aria-hidden="true">·</span>
+                      <span>Vials {combat.potionsUsed}</span>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <SegmentedBar
+              current={hero.hp}
+              max={hero.maxHp}
+              color="crimson"
+              label="HP"
+            />
+
+            {hero.shield > 0 && (
+              <SegmentedBar
+                current={hero.shield}
+                max={Math.max(10, hero.shield)}
+                segments={8}
+                color="cyan"
+                label="Kinetic Shield"
+              />
+            )}
+
+            <div className="flex flex-wrap items-center gap-2 text-[11px] font-mono text-[#a08e7a]">
+              <span>{hero.weaponName} +{hero.weaponLevel}</span>
+              <span aria-hidden="true">·</span>
+              <span>{hero.armorName} +{hero.armorLevel}</span>
+            </div>
+
+            {(combat.heroDefending || combat.heroBonusAtk > 0) && (
+              <div className="flex flex-wrap items-center gap-2 text-xs font-mono pt-0.5">
+                {combat.heroDefending && (
+                  <span className="text-[#4cd7f6]">Guard Stance Active</span>
+                )}
+                {combat.heroBonusAtk > 0 && (
+                  <span className="text-[#ffc174]">
+                    Overdrive +{combat.heroBonusAtk} ATK
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Enemy Card */}
+          <div
+            className={`rounded-lg bg-[#131b2e] border p-4 flex flex-col gap-3 transition-colors ${
+              combat.lastEnemyHit
+                ? 'animate-hit-shake border-[#f59e0b]'
+                : combat.enemyStunned
+                ? 'border-[#8b5cf6]'
+                : isBoss
+                ? 'border-[#8b5cf6]/50'
+                : 'border-white/10'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <div
+                key={`enemy-avatar-${combat.actionTick ?? 0}-${combat.lastEnemyHit ? 'hit' : 'ok'}`}
+                className={`relative rounded-[4px] bg-[#060e20] flex items-center justify-center shrink-0 border ${
+                  isBoss
+                    ? 'w-16 h-16 border-[#8b5cf6]/60 shadow-[0_0_14px_rgba(139,92,246,0.3)]'
+                    : 'w-14 h-14 border-[#ef4444]/35'
+                } ${combat.lastEnemyHit ? 'animate-hit-shake' : ''}`}
+              >
+                <EnemySprite
+                  archetypeId={combat.enemy.archetypeId}
+                  className={`${isBoss ? 'w-13 h-13' : 'w-11 h-11'} ${
+                    isVictory ? 'opacity-30 grayscale' : ''
+                  }`}
+                />
+                {combat.lastEnemyHit && (
+                  <div
+                    className="pointer-events-none absolute inset-0 rounded-[4px] bg-[#ef4444]/60 animate-hit-flash"
+                    aria-hidden="true"
+                  />
+                )}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="font-display text-base font-bold text-[#dae2fd] truncate">
+                  {combat.enemy.name}
+                </div>
+                <div className="flex items-center gap-2 text-xs font-mono text-[#a08e7a] tabular-nums mt-0.5">
+                  <span>ATK {combat.enemy.atk}</span>
+                  <span aria-hidden="true">·</span>
+                  <span>DEF {combat.enemy.def}</span>
+                </div>
+              </div>
+            </div>
+
+            <SegmentedBar
+              current={combat.enemy.hp}
+              max={combat.enemy.maxHp}
+              color={isBoss ? 'violet' : 'amber'}
+              label={isBoss ? 'Boss Integrity' : 'Hostile HP'}
+            />
+
+            <p className="text-xs text-[#a08e7a] leading-snug">
+              {combat.enemyStunned
+                ? 'Stunned — skips next attack!'
+                : combat.enemy.description}
+            </p>
+          </div>
+        </div>
+
+        {/* Combat Log */}
+        <div className="px-4 sm:px-6 py-3 bg-[#060e20] border-y border-white/10">
+          <div className="flex flex-col gap-1 max-h-28 overflow-y-auto text-xs font-mono">
+            {combat.logs.map((entry) => {
+              const toneClass =
+                entry.tone === 'crit'
+                  ? 'text-[#ffc174] font-semibold'
+                  : entry.tone === 'hero'
+                  ? 'text-[#4cd7f6]'
+                  : entry.tone === 'enemy'
+                  ? 'text-[#ffb4ab]'
+                  : entry.tone === 'heal'
+                  ? 'text-[#6ee7b7]'
+                  : 'text-[#a08e7a]';
+              return (
+                <div key={entry.id} className={toneClass}>
+                  <span className="text-[#534434] mr-2">&gt;</span>
+                  {entry.text}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Action Deck or Victory Banner */}
+        <div className="p-4 sm:p-5 bg-[#131b2e] flex flex-col gap-3">
+          {isVictory ? (
+            <div className="flex flex-col gap-4">
+              {isBoss && (
+                <div className="rounded-lg bg-[#060e20] border border-[#f59e0b]/55 p-3.5 flex flex-col gap-1.5 shadow-[0_0_16px_rgba(245,158,11,0.14)]">
+                  <div className="flex items-center justify-between gap-2 text-xs font-mono">
+                    <span className="text-[#ffc174] font-semibold">
+                      Legendary Weapon Forged
+                    </span>
+                    {combat.legendaryDrop && (
+                      <span className="text-[#4cd7f6] font-semibold">
+                        +{combat.legendaryDrop.bonusAtk} ATK
+                      </span>
+                    )}
+                  </div>
+                  {combat.legendaryDropLoading && !combat.legendaryDrop ? (
+                    <p className="text-xs font-mono text-[#a08e7a]">
+                      Extracting Overlord core into a unique weapon relic...
+                    </p>
+                  ) : combat.legendaryDrop ? (
+                    <>
+                      <div className="font-display text-base font-bold text-[#dae2fd]">
+                        {combat.legendaryDrop.name}
+                      </div>
+                      <p className="text-xs text-[#a08e7a] leading-relaxed">
+                        {combat.legendaryDrop.description}
+                      </p>
+                    </>
+                  ) : null}
+                </div>
+              )}
+
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="flex flex-col gap-1">
+                  <span className="font-display text-base font-bold text-[#6ee7b7]">
+                    {isBoss ? 'Final Boss Defeated!' : 'Target Neutralized'}
+                  </span>
+                  <div className="flex flex-wrap items-center gap-2 text-xs font-mono text-[#a08e7a] tabular-nums">
+                    <span className="text-[#ffc174]">+{combat.rewardGold} Gold</span>
+                    <span aria-hidden="true">·</span>
+                    <span className="text-[#4cd7f6]">+{combat.rewardScore} Score</span>
+                    {combat.droppedItemName && (
+                      <>
+                        <span aria-hidden="true">·</span>
+                        <span className="text-[#d5c3ff]">Found {combat.droppedItemName}</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={onVictoryContinue}
+                  className="px-5 py-2.5 rounded-[4px] bg-gradient-to-b from-[#f59e0b] to-[#d97706] text-[#090d16] font-display text-sm font-bold uppercase tracking-wide border-t border-[#fde68a]/60 shadow-[0_0_16px_rgba(245,158,11,0.35)] hover:brightness-110 transition-all whitespace-nowrap cursor-pointer"
+                >
+                  {isBoss ? 'Claim Victory' : 'Continue Exploring'}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              {/* Inline Item Drawer if Item button toggled */}
+              {itemMenuOpen && (
+                <div className="rounded-[4px] bg-[#060e20] border border-[#222a3d] p-3 flex flex-col gap-2">
+                  <div className="flex items-center justify-between text-xs font-mono text-[#a08e7a]">
+                    <span>Select Combat Consumable</span>
+                    <button
+                      type="button"
+                      onClick={() => setItemMenuOpen(false)}
+                      className="text-[#dae2fd] hover:text-[#ffc174] cursor-pointer"
+                    >
+                      Close
+                    </button>
+                  </div>
+                  {usableItems.length === 0 ? (
+                    <p className="text-xs text-[#a08e7a]">
+                      No usable consumables remaining in pack.
+                    </p>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {usableItems.map((item) => (
+                        <button
+                          key={item.id}
+                          type="button"
+                          disabled={!isPlayerTurn}
+                          onClick={() => {
+                            setItemMenuOpen(false);
+                            onUseItem(item.id);
+                          }}
+                          className="flex items-center gap-3 p-2.5 rounded-[4px] bg-[#131b2e] border border-white/10 hover:border-[#10b981]/60 text-left transition-colors cursor-pointer disabled:opacity-50"
+                        >
+                          <div className="w-9 h-9 rounded-[4px] bg-[#060e20] border border-[#222a3d] flex items-center justify-center shrink-0">
+                            <ItemIcon id={item.id} className="w-6 h-6" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center justify-between gap-2 text-xs font-semibold text-[#dae2fd]">
+                              <span className="truncate">{item.name}</span>
+                              <span className="font-mono text-[#ffc174]">x{item.quantity}</span>
+                            </div>
+                            <div className="text-[11px] text-[#a08e7a] truncate">
+                              {item.description}
+                            </div>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                <button
+                  type="button"
+                  disabled={!isPlayerTurn}
+                  onClick={onAttack}
+                  className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-[4px] bg-gradient-to-b from-[#f59e0b] to-[#d97706] text-[#090d16] font-display text-sm font-bold uppercase tracking-wide border-t border-[#fde68a]/60 shadow-[0_0_14px_rgba(245,158,11,0.3)] hover:brightness-110 active:translate-y-px transition-all disabled:opacity-50 whitespace-nowrap cursor-pointer"
+                >
+                  <Sword className="w-4 h-4" />
+                  <span>Attack</span>
+                </button>
+
+                <button
+                  type="button"
+                  disabled={!isPlayerTurn}
+                  onClick={onDefend}
+                  className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-[4px] bg-[#06b6d4]/15 border border-[#06b6d4] text-[#4cd7f6] font-display text-sm font-semibold hover:bg-[#06b6d4]/25 active:translate-y-px transition-all disabled:opacity-50 whitespace-nowrap cursor-pointer"
+                >
+                  <Shield className="w-4 h-4" />
+                  <span>Defend</span>
+                </button>
+
+                <button
+                  type="button"
+                  disabled={!isPlayerTurn}
+                  onClick={() => setItemMenuOpen((prev) => !prev)}
+                  className={`inline-flex items-center justify-center gap-2 px-4 py-3 rounded-[4px] border font-display text-sm font-semibold transition-all disabled:opacity-50 whitespace-nowrap cursor-pointer ${
+                    itemMenuOpen
+                      ? 'bg-[#10b981]/25 border-[#10b981] text-[#6ee7b7]'
+                      : 'bg-[#10b981]/10 border-[#10b981]/50 text-[#6ee7b7] hover:bg-[#10b981]/20'
+                  }`}
+                >
+                  <Backpack className="w-4 h-4" />
+                  <span>Item ({usableItems.reduce((acc, i) => acc + i.quantity, 0)})</span>
+                </button>
+
+                <button
+                  type="button"
+                  disabled={!isPlayerTurn}
+                  onClick={onFlee}
+                  className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-[4px] bg-[#0f172a] border border-white/15 text-[#a08e7a] hover:text-[#dae2fd] hover:border-white/30 font-display text-sm font-semibold transition-all disabled:opacity-50 whitespace-nowrap cursor-pointer"
+                >
+                  <CornerUpLeft className="w-4 h-4" />
+                  <span>Flee</span>
+                </button>
+              </div>
+
+              <div className="flex items-center justify-between text-[11px] font-mono text-[#a08e7a]">
+                <span className="inline-flex items-center gap-1.5">
+                  <Zap className="w-3.5 h-3.5 text-[#f59e0b]" />
+                  <span>Shortcuts: 1 Attack · 2 Defend · 3 Item · 4 Flee</span>
+                </span>
+                <span>Crit {Math.round(hero.critChance * 100)}%</span>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
