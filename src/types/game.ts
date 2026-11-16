@@ -176,6 +176,8 @@ export interface CombatState {
   bossRoastLoading: boolean;
   legendaryDrop: LegendaryWeapon | null;
   legendaryDropLoading: boolean;
+  clutchBarrierActive?: boolean;
+  parryActive?: boolean;
 }
 
 export interface MerchantItem {
@@ -217,6 +219,8 @@ export interface ActiveRunState {
   isCustomMap?: boolean;
   customMapId?: string;
   customMapName?: string;
+  floorBoonClaimedFloor?: number;
+  smokeScreen?: { x: number; y: number; tick: number } | null;
   startedAt: number;
 }
 

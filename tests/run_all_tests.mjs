@@ -567,3 +567,183 @@ test('CORE MECHANICS: Game Engine Regression Suite', async (t) => {
     assert.strictEqual(rat.baseHp, 15);
   });
 });
+
+// ============================================================================
+// 4. COMBAT ENHANCEMENTS, FLOOR CLEAR REWARDS & ESCAPE MECHANICS
+// ============================================================================
+
+function calculateFloorClearHealing(currentHp, maxHp) {
+  const isBelow70 = currentHp < maxHp * 0.7;
+  const percent = isBelow70 ? 25 : 15;
+  const healAmount = Math.max(1, Math.round(maxHp * (percent / 100)));
+  const newHp = Math.min(maxHp, currentHp + healAmount);
+  return { healAmount, newHp, percent };
+}
+
+function canSelectFortifiedGuard(def) {
+  return def < 5;
+}
+
+function applyLevelBoon(hero, boon) {
+  if (boon === 'aggressive_stance') {
+    const bonusAtk = Math.max(1, Math.round(hero.atk * 0.15));
+    return {
+      nextHero: { ...hero, atk: hero.atk + bonusAtk },
+      statDeltaText: `+${bonusAtk} Attack (+15%)`,
+    };
+  } else {
+    if (!canSelectFortifiedGuard(hero.def)) {
+      throw new Error('Fortified Guard requires Defense < 5.');
+    }
+    const bonusDef = Math.max(1, Math.round(hero.def * 0.5));
+    return {
+      nextHero: { ...hero, def: hero.def + bonusDef },
+      statDeltaText: `+${bonusDef} Defense (+50%)`,
+    };
+  }
+}
+
+function isClutchHealEligible(currentHp, maxHp) {
+  return currentHp / maxHp < 0.1;
+}
+
+function calculateParryMitigationAndReflect(rawAttack) {
+  const dmgTaken = Math.max(0, Math.round(rawAttack * 0.01));
+  const counterDamage = Math.max(1, Math.round(rawAttack * 0.1));
+  return { dmgTaken, counterDamage };
+}
+
+function isEmergencyFleeEligible(currentHp, maxHp) {
+  return currentHp / maxHp < 0.1;
+}
+
+function calculateMonsterKnockback(floor, heroPos, enemyPos) {
+  let dx = Math.sign(enemyPos.x - heroPos.x);
+  let dy = Math.sign(enemyPos.y - heroPos.y);
+
+  if (dx === 0 && dy === 0) {
+    dx = 1;
+  }
+
+  const primary = { x: enemyPos.x + dx, y: enemyPos.y + dy };
+  const isTileClear = (x, y) => {
+    if (x < 0 || x >= floor.width || y < 0 || y >= floor.height) return false;
+    if (floor.tiles[y][x] === 'WALL') return false;
+    if (floor.enemies && floor.enemies.some((e) => e.x === x && e.y === y && !(e.x === enemyPos.x && e.y === enemyPos.y))) return false;
+    if (x === heroPos.x && y === heroPos.y) return false;
+    return true;
+  };
+
+  if (isTileClear(primary.x, primary.y)) {
+    return primary;
+  }
+
+  const candidates = [
+    { x: enemyPos.x + dx, y: enemyPos.y },
+    { x: enemyPos.x, y: enemyPos.y + dy },
+    { x: enemyPos.x - dy, y: enemyPos.y + dx },
+    { x: enemyPos.x + dy, y: enemyPos.y - dx },
+  ];
+
+  for (const cand of candidates) {
+    if (isTileClear(cand.x, cand.y)) {
+      return cand;
+    }
+  }
+
+  return { x: enemyPos.x, y: enemyPos.y };
+}
+
+test('FEATURE: Floor Clear Rewards, Clutch Barrier, Parry Counter & Smoke Screen', async (t) => {
+  await t.test('Dynamic HP Recovery: restores +25% when HP < 70% and +15% when HP >= 70% capped at max HP', () => {
+    // Case 1: HP < 70% of maxHp (20 / 40 = 50% < 70%)
+    // Restores +25% of 40 = 10 HP -> 30 HP
+    const r1 = calculateFloorClearHealing(20, 40);
+    assert.strictEqual(r1.percent, 25);
+    assert.strictEqual(r1.healAmount, 10);
+    assert.strictEqual(r1.newHp, 30);
+
+    // Case 2: HP >= 70% of maxHp (32 / 40 = 80% >= 70%)
+    // Restores +15% of 40 = 6 HP -> 38 HP
+    const r2 = calculateFloorClearHealing(32, 40);
+    assert.strictEqual(r2.percent, 15);
+    assert.strictEqual(r2.healAmount, 6);
+    assert.strictEqual(r2.newHp, 38);
+
+    // Case 3: Health cannot exceed Max HP (38 / 40 -> +6 would be 44, capped at 40)
+    const r3 = calculateFloorClearHealing(38, 40);
+    assert.strictEqual(r3.percent, 15);
+    assert.strictEqual(r3.newHp, 40);
+  });
+
+  await t.test('Level-Up Boon: Aggressive Stance permanently increases Attack by +15%', () => {
+    const hero = { atk: 10, def: 3 };
+    const res = applyLevelBoon(hero, 'aggressive_stance');
+    // 10 * 0.15 = 1.5 -> rounds to 2
+    assert.strictEqual(res.nextHero.atk, 12);
+    assert.ok(res.statDeltaText.includes('+2 Attack (+15%)'));
+  });
+
+  await t.test('Level-Up Boon: Fortified Guard permanently increases Defense by +50% only when DEF < 5', () => {
+    // When hero DEF = 3 (< 5), selectable!
+    const heroEligible = { atk: 8, def: 3 };
+    assert.strictEqual(canSelectFortifiedGuard(heroEligible.def), true);
+    const res = applyLevelBoon(heroEligible, 'fortified_guard');
+    // 3 * 0.5 = 1.5 -> rounds to 2
+    assert.strictEqual(res.nextHero.def, 5);
+
+    // When hero DEF = 5, locked and throws if selected
+    const heroMaxed = { atk: 8, def: 5 };
+    assert.strictEqual(canSelectFortifiedGuard(heroMaxed.def), false);
+    assert.throws(() => applyLevelBoon(heroMaxed, 'fortified_guard'), /Defense < 5/);
+  });
+
+  await t.test('Clutch Heal Invulnerability: detects < 10% HP threshold correctly', () => {
+    // 2 / 30 = 6.67% < 10% -> eligible!
+    assert.strictEqual(isClutchHealEligible(2, 30), true);
+    // 1 / 40 = 2.5% < 10% -> eligible!
+    assert.strictEqual(isClutchHealEligible(1, 40), true);
+    // 3 / 30 = 10% -> not strictly below 10%
+    assert.strictEqual(isClutchHealEligible(3, 30), false);
+    // 15 / 30 = 50% -> not eligible
+    assert.strictEqual(isClutchHealEligible(15, 30), false);
+  });
+
+  await t.test('Shield Counter-Attack: reduces incoming monster damage to 1% and reflects 10% counter', () => {
+    // Raw incoming attack of 30:
+    // 99% reduction -> 1% taken = 0.3 rounds to 0 dmg
+    // 10% counter-damage = 3 dmg reflected
+    const r1 = calculateParryMitigationAndReflect(30);
+    assert.strictEqual(r1.dmgTaken, 0);
+    assert.strictEqual(r1.counterDamage, 3);
+
+    // Raw incoming attack of 100:
+    // 99% reduction -> 1% taken = 1 dmg
+    // 10% counter-damage = 10 dmg reflected
+    const r2 = calculateParryMitigationAndReflect(100);
+    assert.strictEqual(r2.dmgTaken, 1);
+    assert.strictEqual(r2.counterDamage, 10);
+  });
+
+  await t.test('Emergency Smoke Screen Flee: detects < 10% HP and knocks monster 1 tile backward', () => {
+    assert.strictEqual(isEmergencyFleeEligible(2, 30), true);
+    assert.strictEqual(isEmergencyFleeEligible(10, 30), false);
+
+    const floor = {
+      width: 6,
+      height: 6,
+      tiles: [
+        ['WALL', 'WALL', 'WALL', 'WALL', 'WALL', 'WALL'],
+        ['WALL', 'FLOOR', 'FLOOR', 'FLOOR', 'FLOOR', 'WALL'],
+        ['WALL', 'FLOOR', 'FLOOR', 'FLOOR', 'FLOOR', 'WALL'],
+        ['WALL', 'FLOOR', 'FLOOR', 'FLOOR', 'FLOOR', 'WALL'],
+        ['WALL', 'WALL', 'WALL', 'WALL', 'WALL', 'WALL'],
+      ],
+      enemies: [{ id: 'e1', x: 2, y: 2 }],
+    };
+
+    // Hero at (1, 2), Enemy at (2, 2). Knockback pushes enemy rightward to (3, 2)
+    const pushed = calculateMonsterKnockback(floor, { x: 1, y: 2 }, { x: 2, y: 2 });
+    assert.deepStrictEqual(pushed, { x: 3, y: 2 });
+  });
+});

@@ -1,12 +1,16 @@
 import React, { useEffect } from 'react';
 import {
   BookOpen,
+  CloudFog,
   Compass,
+  HeartPulse,
   Keyboard,
   Shield,
   ShoppingBag,
+  Sparkles,
   Sword,
   X,
+  Zap,
 } from 'lucide-react';
 import {
   EnemySprite,
@@ -225,7 +229,7 @@ export const HowToPlayModal: React.FC<HowToPlayModalProps> = ({ onClose }) => {
                 <h3>Combat Mechanics</h3>
               </div>
               <p className="text-xs text-[#a08e7a] leading-relaxed">
-                Alerted monsters advance one tile after each move. Bumping an enemy starts turn-based combat: <strong className="text-[#dae2fd]">Attack</strong> deals weapon damage with Critical Hit potential, <strong className="text-[#4cd7f6]">Defend</strong> cuts incoming damage by 70% while reflecting damage and surging +2 HP, <strong className="text-[#6ee7b7]">Items</strong> heal or stun, and <strong className="text-[#dae2fd]">Flee</strong> lets you reposition.
+                Alerted monsters advance one tile after each move. Bumping an enemy starts turn-based combat: <strong className="text-[#dae2fd]">Attack</strong> deals weapon damage with Critical Hit potential, <strong className="text-[#4cd7f6]">Defend</strong> activates a 99% damage mitigation parry with 10% counter-damage recoil, <strong className="text-[#6ee7b7]">Items</strong> heal or stun, and <strong className="text-[#dae2fd]">Flee</strong> allows repositioning or emergency smoke evasion.
               </p>
             </div>
 
@@ -237,6 +241,105 @@ export const HowToPlayModal: React.FC<HowToPlayModalProps> = ({ onClose }) => {
               <p className="text-xs text-[#a08e7a] leading-relaxed">
                 Reaching the stairs between floors opens the <strong className="text-[#dae2fd]">Inter-Floor Merchant &amp; Armory</strong>. Spend collected Gold to buy higher-tier Weapons (+ATK), Shields &amp; Armor (+DEF / +Shield / +Max HP), and healing potions before descending deeper—or open your Field Pack (<strong className="text-[#dae2fd]">I</strong>) anytime for quick field upgrades.
               </p>
+            </div>
+          </section>
+
+          {/* 5. Advanced Combat & Floor Clear Systems */}
+          <section className="flex flex-col gap-3 pt-4 border-t border-white/10">
+            <div className="flex items-center gap-2 text-sm font-display font-bold text-[#fbbf24]">
+              <Sparkles className="w-4 h-4 shrink-0" />
+              <h3>Advanced Combat &amp; Tactical Systems</h3>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+              {/* Floor Clear Rewards */}
+              <div className="rounded-[4px] bg-[#131b2e] border border-white/10 p-3.5 flex flex-col gap-2">
+                <div className="flex items-center gap-2 font-display font-bold text-[#6ee7b7]">
+                  <HeartPulse className="w-4 h-4 shrink-0" />
+                  <span>Floor Clear Rewards &amp; Stat Boons</span>
+                </div>
+                <p className="text-[#d8c3ad] leading-relaxed">
+                  Reaching descent stairs triggers immediate HP recovery and a level-up boon before entering the shop:
+                </p>
+                <ul className="flex flex-col gap-1 text-[#a08e7a] font-mono list-disc list-inside">
+                  <li>
+                    <strong className="text-[#dae2fd]">HP &lt; 70%:</strong> Restores <span className="text-[#6ee7b7]">+25% Max HP</span>
+                  </li>
+                  <li>
+                    <strong className="text-[#dae2fd]">HP &gt;= 70%:</strong> Restores <span className="text-[#6ee7b7]">+15% Max HP</span> (capped at Max HP)
+                  </li>
+                  <li>
+                    <strong className="text-[#ffc174]">Aggressive Stance:</strong> Permanently increases Attack by <span className="text-[#ffc174]">+15%</span>
+                  </li>
+                  <li>
+                    <strong className="text-[#4cd7f6]">Fortified Guard:</strong> Permanently increases Defense by <span className="text-[#4cd7f6]">+50%</span> (selectable only if DEF &lt; 5)
+                  </li>
+                </ul>
+              </div>
+
+              {/* Clutch Healing Barrier */}
+              <div className="rounded-[4px] bg-[#131b2e] border border-white/10 p-3.5 flex flex-col gap-2">
+                <div className="flex items-center gap-2 font-display font-bold text-[#fbbf24]">
+                  <Zap className="w-4 h-4 shrink-0" />
+                  <span>Clutch Healing Barrier (&lt; 10% HP)</span>
+                </div>
+                <p className="text-[#d8c3ad] leading-relaxed">
+                  When in dire straits (<strong className="text-[#ffb4ab]">HP below 10%</strong> of Max HP), consuming a healing vial activates a 1-turn golden invulnerability shield:
+                </p>
+                <div className="p-2 rounded-[4px] bg-[#060e20] border border-[#f59e0b]/30 text-[#ffc174] font-mono text-[11px]">
+                  The monster's retaliatory counter-attack deals <strong>exactly 0 damage</strong>!
+                  <div className="text-[#a08e7a] mt-0.5">
+                    Log: <em>"CRITICAL RECOVERY! Monster attack nullified!"</em>
+                  </div>
+                </div>
+              </div>
+
+              {/* Shield Counter-Attack */}
+              <div className="rounded-[4px] bg-[#131b2e] border border-white/10 p-3.5 flex flex-col gap-2">
+                <div className="flex items-center gap-2 font-display font-bold text-[#4cd7f6]">
+                  <Shield className="w-4 h-4 shrink-0" />
+                  <span>Shield Counter-Attack (Parry &amp; Reflect)</span>
+                </div>
+                <p className="text-[#d8c3ad] leading-relaxed">
+                  Choosing <strong className="text-[#4cd7f6]">Defend / Shield</strong> in combat deflects almost all incoming force and punishes the assailant:
+                </p>
+                <ul className="flex flex-col gap-1 text-[#a08e7a] font-mono list-disc list-inside">
+                  <li>
+                    Reduces incoming monster damage to <span className="text-[#4cd7f6]">1% (99% damage reduction)</span>.
+                  </li>
+                  <li>
+                    Immediately reflects <span className="text-[#ffc174]">10% counter-damage</span> back to the monster.
+                  </li>
+                  <li>
+                    Combat Log: <em>"PARRY &amp; COUNTER! Blocked 99% damage and countered!"</em>
+                  </li>
+                </ul>
+              </div>
+
+              {/* Emergency Smoke Screen Escape */}
+              <div className="rounded-[4px] bg-[#131b2e] border border-white/10 p-3.5 flex flex-col gap-2">
+                <div className="flex items-center gap-2 font-display font-bold text-[#cbd5e1]">
+                  <CloudFog className="w-4 h-4 shrink-0" />
+                  <span>Emergency Smoke Screen (&lt; 10% HP)</span>
+                </div>
+                <p className="text-[#d8c3ad] leading-relaxed">
+                  Choosing <strong className="text-[#cbd5e1]">Flee</strong> when health drops below 10% triggers an emergency evacuation:
+                </p>
+                <ul className="flex flex-col gap-1 text-[#a08e7a] font-mono list-disc list-inside">
+                  <li>
+                    <strong className="text-[#6ee7b7]">100% Guaranteed escape</strong> with 0 retaliatory damage.
+                  </li>
+                  <li>
+                    Discharges a <strong className="text-[#cbd5e1]">gray smoke screen</strong> puff animation on the grid.
+                  </li>
+                  <li>
+                    Knocks the hostile monster <strong className="text-[#ffc174]">1 tile backward</strong> away from you.
+                  </li>
+                  <li>
+                    If HP &gt;= 10%, standard 65% escape chance applies.
+                  </li>
+                </ul>
+              </div>
             </div>
           </section>
         </div>

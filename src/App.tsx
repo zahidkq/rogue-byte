@@ -24,6 +24,7 @@ import { GameOverScreen } from './components/GameOverScreen';
 import { HowToPlayModal } from './components/HowToPlayModal';
 import { InventoryModal } from './components/InventoryModal';
 import { LevelBuilderModal } from './components/LevelBuilderModal';
+import { LevelUpBoonModal } from './components/LevelUpBoonModal';
 import { SegmentedBar } from './components/SegmentedBar';
 import { ItemIcon } from './components/Sprites';
 import { TitleScreen } from './components/TitleScreen';
@@ -31,12 +32,18 @@ import { VictoryScreen } from './components/VictoryScreen';
 import { customMapToDungeonFloor } from './engine/customMap';
 import {
   addInventoryItem,
+  applyLevelBoon,
+  calculateFloorClearHealing,
+  calculateMonsterKnockback,
+  calculateParryMitigationAndReflect,
   computeFogOfWar,
   consumeInventoryItem,
   createStartingInventory,
   findNextStepBFS,
   generateDungeonFloor,
   HERO_CLASSES,
+  isClutchHealEligible,
+  isEmergencyFleeEligible,
   ITEM_CATALOG,
   MAX_FLOOR,
   stepEnemiesTowardHero,
@@ -116,8 +123,21 @@ export default function App() {
     isNewBest: boolean;
   } | null>(null);
 
+  const [levelUpBoonData, setLevelUpBoonData] = useState<{
+    floorNumber: number;
+    healAmount: number;
+    percent: 25 | 15;
+    newHp: number;
+  } | null>(null);
+  const [smokeScreen, setSmokeScreen] = useState<{
+    x: number;
+    y: number;
+    tick: number;
+  } | null>(null);
+
   const combatTimerRef = useRef<number | null>(null);
   const roastAbortRef = useRef<AbortController | null>(null);
+  const smokeScreenTimerRef = useRef<number | null>(null);
 
   // Check URL on initial mount for shared custom map link (#map=... or ?map=...)
   useEffect(() => {
@@ -829,7 +849,21 @@ export default function App() {
         );
         stairRun.logs = nextLogs;
         setRun(stairRun);
-        setFloorTransitionOpen(true);
+
+        if (stairRun.floorBoonClaimedFloor !== nextFloor.floorNumber) {
+          const { healAmount, newHp, percent } = calculateFloorClearHealing(
+            nextHero.hp,
+            nextHero.maxHp
+          );
+          setLevelUpBoonData({
+            floorNumber: nextFloor.floorNumber,
+            healAmount,
+            percent,
+            newHp,
+          });
+        } else {
+          setFloorTransitionOpen(true);
+        }
         return;
       }
 
@@ -869,11 +903,29 @@ export default function App() {
   // Tile click handler: adjacent moves/attacks immediately, distant explored tiles step 1 tile closer
   const handleTileClick = useCallback(
     (tx: number, ty: number) => {
-      if (!run || combat || inventoryOpen || floorTransitionOpen || helpOpen) return;
+      if (!run || combat || inventoryOpen || floorTransitionOpen || helpOpen || levelUpBoonData) return;
 
       if (tx === run.hero.x && ty === run.hero.y) {
         if (run.floor.tiles[ty][tx] === 'STAIRS') {
-          setFloorTransitionOpen(true);
+          if (run.isCustomMap) {
+            triggerVictory(
+              run,
+              `Successfully cleared custom crypt "${run.customMapName || 'Custom Level'}"!`
+            );
+          } else if (run.floorBoonClaimedFloor !== run.floor.floorNumber) {
+            const { healAmount, newHp, percent } = calculateFloorClearHealing(
+              run.hero.hp,
+              run.hero.maxHp
+            );
+            setLevelUpBoonData({
+              floorNumber: run.floor.floorNumber,
+              healAmount,
+              percent,
+              newHp,
+            });
+          } else {
+            setFloorTransitionOpen(true);
+          }
         }
         return;
       }
@@ -928,7 +980,7 @@ export default function App() {
         e.preventDefault();
       }
 
-      if (helpOpen || combat || floorTransitionOpen) return;
+      if (helpOpen || combat || floorTransitionOpen || levelUpBoonData) return;
 
       if (e.key === '?' || e.key.toLowerCase() === 'h') {
         e.preventDefault();
@@ -985,6 +1037,17 @@ export default function App() {
                 run,
                 `Successfully cleared custom crypt "${run.customMapName || 'Custom Level'}"!`
               );
+            } else if (run.floorBoonClaimedFloor !== run.floor.floorNumber) {
+              const { healAmount, newHp, percent } = calculateFloorClearHealing(
+                run.hero.hp,
+                run.hero.maxHp
+              );
+              setLevelUpBoonData({
+                floorNumber: run.floor.floorNumber,
+                healAmount,
+                percent,
+                newHp,
+              });
             } else {
               setFloorTransitionOpen(true);
             }
@@ -1006,6 +1069,7 @@ export default function App() {
     inventoryOpen,
     floorTransitionOpen,
     helpOpen,
+    levelUpBoonData,
     performExplorationStep,
   ]);
 
@@ -1043,42 +1107,72 @@ export default function App() {
             };
           }
 
+          // Clutch Heal Invulnerability Barrier (<10% HP potion use):
+          // Retaliatory attack deals exactly 0 damage.
+          if (prev.clutchBarrierActive) {
+            sound.playDefend();
+            return {
+              ...prev,
+              clutchBarrierActive: false,
+              heroDefending: false,
+              turnNumber: prev.turnNumber + 1,
+              phase: 'PLAYER_TURN',
+              lastHeroHit: false,
+              lastEnemyHit: false,
+              logs: [
+                ...prev.logs,
+                {
+                  id: uid('clog'),
+                  text: 'CRITICAL RECOVERY! Monster attack nullified!',
+                  tone: 'crit',
+                },
+              ],
+            };
+          }
+
           const rawAttack = Math.max(
             1,
             prev.enemy.atk - Math.floor(currentHero.def * 0.55) + randInt(-1, 1)
           );
-          const dmgAfterGuard = prev.heroDefending
-            ? Math.max(1, Math.round(rawAttack * 0.3))
-            : rawAttack;
+
+          let dmgAfterGuard = rawAttack;
+          let enemyAfterReflect = { ...prev.enemy };
+          const logsToAdd: CombatLogEntry[] = [];
+
+          // Shield Counter-Attack (Parry & Reflect):
+          // Reduces incoming monster damage to 1% (99% reduction) and immediately reflects 10% counter-damage.
+          if (prev.heroDefending) {
+            const { dmgTaken, counterDamage } = calculateParryMitigationAndReflect(rawAttack);
+            dmgAfterGuard = dmgTaken;
+            enemyAfterReflect.hp = Math.max(0, enemyAfterReflect.hp - counterDamage);
+
+            sound.playDefend();
+
+            logsToAdd.push({
+              id: uid('clog'),
+              text: 'PARRY & COUNTER! Blocked 99% damage and countered!',
+              tone: 'hero',
+            });
+            logsToAdd.push({
+              id: uid('clog'),
+              text: `Reflected ${counterDamage} counter-damage back to ${prev.enemy.name}!`,
+              tone: 'crit',
+            });
+          }
 
           const { nextHero, shieldAbsorbed, hpLost } = applyDamageToHero(
             currentHero,
             dmgAfterGuard
           );
 
-          sound.playEnemyHit();
-
-          // Reflected counter damage when defending
-          let enemyAfterReflect = { ...prev.enemy };
-          const logsToAdd: CombatLogEntry[] = [
-            {
-              id: uid('clog'),
-              text: prev.heroDefending
-                ? `${prev.enemy.name} strikes your barrier for ${dmgAfterGuard} dmg (${shieldAbsorbed > 0 ? `${shieldAbsorbed} shielded, ` : ''}${hpLost} HP).`
-                : `${prev.enemy.name} hits you for ${dmgAfterGuard} dmg${
-                    shieldAbsorbed > 0 ? ` (${shieldAbsorbed} shielded)` : ''
-                  }.`,
-              tone: 'enemy',
-            },
-          ];
-
-          if (prev.heroDefending) {
-            const reflectDmg = 2 + Math.floor((run?.floor.floorNumber ?? 1) / 2);
-            enemyAfterReflect.hp = Math.max(0, enemyAfterReflect.hp - reflectDmg);
+          if (!prev.heroDefending) {
+            sound.playEnemyHit();
             logsToAdd.push({
               id: uid('clog'),
-              text: `Kinetic Guard reflects ${reflectDmg} damage back!`,
-              tone: 'hero',
+              text: `${prev.enemy.name} hits you for ${dmgAfterGuard} dmg${
+                shieldAbsorbed > 0 ? ` (${shieldAbsorbed} shielded)` : ''
+              }.`,
+              tone: 'enemy',
             });
           }
 
@@ -1275,7 +1369,7 @@ export default function App() {
         ...combat.logs,
         {
           id: uid('clog'),
-          text: `Raised Kinetic Guard (-70% incoming dmg, reflects dmg${
+          text: `Raised Kinetic Guard (Parry stance: 99% mitigation + 10% counter-reflect ready${
             healed > 0 ? `, +${healed} HP surge` : ''
           }).`,
           tone: 'heal',
@@ -1305,6 +1399,7 @@ export default function App() {
     const item = run.inventory.find((i) => i.id === itemId && i.quantity > 0);
     if (!item) return;
 
+    const isClutch = itemId === 'med_vial' && isClutchHealEligible(run.hero.hp, run.hero.maxHp);
     const nextInv = consumeInventoryItem(run.inventory, itemId);
     let nextHero = { ...run.hero };
     let nextEnemy = { ...combat.enemy };
@@ -1320,8 +1415,10 @@ export default function App() {
       sound.playPotion();
       logEntry = {
         id: uid('clog'),
-        text: `Used Nano-Med Vial (+${healAmt} HP).`,
-        tone: 'heal',
+        text: isClutch
+          ? `Used Nano-Med Vial (+${healAmt} HP). Critical condition activated Gold Barrier!`
+          : `Used Nano-Med Vial (+${healAmt} HP).`,
+        tone: isClutch ? 'crit' : 'heal',
       };
     } else if (itemId === 'aegis_cell') {
       nextHero.shield += 10;
@@ -1409,6 +1506,7 @@ export default function App() {
       heroBonusAtk: nextBonusAtk,
       enemyStunned: nextStun,
       potionsUsed: nextPotionsUsed,
+      clutchBarrierActive: isClutch,
       heroDefending: false,
       phase: 'ANIMATING',
       lastEnemyHit: itemId === 'shock_bomb',
@@ -1438,6 +1536,59 @@ export default function App() {
 
   const handleCombatFlee = () => {
     if (!combat || !run || combat.phase !== 'PLAYER_TURN') return;
+
+    // Emergency Smoke Screen Flee (< 10% HP):
+    // 100% guaranteed with 0 damage taken, gray puff animation on grid,
+    // pushes monster 1 tile backward away from player on grid,
+    // log: "SMOKE SCREEN ESCAPE! Blinded the monster and retreated safely!"
+    const isEmergency = isEmergencyFleeEligible(run.hero.hp, run.hero.maxHp);
+    if (isEmergency) {
+      if (roastAbortRef.current) {
+        roastAbortRef.current.abort();
+      }
+      sound.playMove();
+
+      const knockedPos = calculateMonsterKnockback(
+        run.floor,
+        { x: run.hero.x, y: run.hero.y },
+        { x: combat.enemy.x, y: combat.enemy.y }
+      );
+
+      const updatedEnemies = run.floor.enemies.map((e) =>
+        e.id === combat.enemy.id ? { ...e, x: knockedPos.x, y: knockedPos.y } : e
+      );
+
+      // Trigger gray puff / smoke screen animation on the grid at hero's tile
+      setSmokeScreen({ x: run.hero.x, y: run.hero.y, tick: Date.now() });
+      if (smokeScreenTimerRef.current) {
+        window.clearTimeout(smokeScreenTimerRef.current);
+      }
+      smokeScreenTimerRef.current = window.setTimeout(() => {
+        setSmokeScreen(null);
+      }, 1200);
+
+      setRun((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          floor: {
+            ...prev.floor,
+            enemies: updatedEnemies,
+          },
+          logs: appendLog(
+            prev.logs,
+            prev.turn,
+            'SMOKE SCREEN ESCAPE! Blinded the monster and retreated safely!',
+            'cyan'
+          ),
+        };
+      });
+
+      setCombat(null);
+      return;
+    }
+
+    // Standard flee rules if HP >= 10%
     const escaped = Math.random() < 0.65;
     if (escaped) {
       if (roastAbortRef.current) {
@@ -1742,6 +1893,37 @@ export default function App() {
     });
   };
 
+  const handleSelectFloorBoon = useCallback(
+    (boon: 'aggressive_stance' | 'fortified_guard') => {
+      if (!run || !levelUpBoonData) return;
+
+      const { newHp, healAmount, percent } = levelUpBoonData;
+      const { nextHero, statDeltaText } = applyLevelBoon(
+        { ...run.hero, hp: newHp },
+        boon
+      );
+
+      sound.playStairs();
+
+      const boonName =
+        boon === 'aggressive_stance' ? 'Aggressive Stance' : 'Fortified Guard';
+      const boonLog = `Floor ${levelUpBoonData.floorNumber} cleared! Restored +${healAmount} HP (${percent}% recovery). Chosen Boon: ${boonName} (${statDeltaText}).`;
+
+      const updatedRun: ActiveRunState = {
+        ...run,
+        hero: nextHero,
+        floorBoonClaimedFloor: levelUpBoonData.floorNumber,
+        logs: appendLog(run.logs, run.turn, boonLog, 'emerald'),
+      };
+
+      setRun(updatedRun);
+      saveActiveRun(updatedRun);
+      setLevelUpBoonData(null);
+      setFloorTransitionOpen(true);
+    },
+    [run, levelUpBoonData]
+  );
+
   // Descend to Floor N + 1 from Inter-Floor Gear Shop
   const handleContinueNextFloor = () => {
     if (!run) return;
@@ -1749,6 +1931,8 @@ export default function App() {
       triggerVictory(run, `Cleared all ${MAX_FLOOR} dungeon floors!`);
       return;
     }
+
+    setLevelUpBoonData(null);
 
     const nextFloorNum = run.floor.floorNumber + 1;
     const floorBonus = 150 * run.floor.floorNumber;
@@ -2044,6 +2228,17 @@ export default function App() {
                       run,
                       `Successfully cleared custom crypt "${run.customMapName || 'Custom Level'}"!`
                     );
+                  } else if (run.floorBoonClaimedFloor !== run.floor.floorNumber) {
+                    const { healAmount, newHp, percent } = calculateFloorClearHealing(
+                      run.hero.hp,
+                      run.hero.maxHp
+                    );
+                    setLevelUpBoonData({
+                      floorNumber: run.floor.floorNumber,
+                      healAmount,
+                      percent,
+                      newHp,
+                    });
                   } else {
                     setFloorTransitionOpen(true);
                   }
@@ -2061,6 +2256,7 @@ export default function App() {
             hero={run.hero}
             popups={popups}
             lastStep={heroStep}
+            smokeScreen={smokeScreen}
             onTileClick={handleTileClick}
           />
 
@@ -2268,6 +2464,18 @@ export default function App() {
           onBuyItem={handleBuyItem}
           onUpgradeWeapon={handleUpgradeWeapon}
           onUpgradeArmor={handleUpgradeArmor}
+        />
+      )}
+
+      {/* Floor Clear Healing & Stat Boon Selection Modal */}
+      {levelUpBoonData && run && (
+        <LevelUpBoonModal
+          currentFloor={levelUpBoonData.floorNumber}
+          hero={run.hero}
+          healAmount={levelUpBoonData.healAmount}
+          percentRestored={levelUpBoonData.percent}
+          newHp={levelUpBoonData.newHp}
+          onSelectBoon={handleSelectFloorBoon}
         />
       )}
 

@@ -1,5 +1,15 @@
 import React, { useEffect, useState } from 'react';
-import { Backpack, CornerUpLeft, Crown, MessageSquareWarning, Shield, Sword, Zap } from 'lucide-react';
+import {
+  Backpack,
+  CloudFog,
+  CornerUpLeft,
+  Crown,
+  MessageSquareWarning,
+  Shield,
+  Sparkles,
+  Sword,
+  Zap,
+} from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { CombatState, HeroState, InventoryItem, InventoryItemId } from '../types/game';
 import { SegmentedBar } from './SegmentedBar';
@@ -162,7 +172,9 @@ export const CombatModal: React.FC<CombatModalProps> = ({
           {/* Hero Card */}
           <div
             className={`rounded-lg bg-[#131b2e] border p-4 flex flex-col gap-3 transition-colors ${
-              combat.lastHeroHit
+              combat.clutchBarrierActive
+                ? 'border-[#f59e0b] shadow-[0_0_24px_rgba(245,158,11,0.45)]'
+                : combat.lastHeroHit
                 ? 'animate-hit-shake border-[#ef4444]'
                 : combat.heroDefending
                 ? 'border-[#06b6d4]'
@@ -173,7 +185,9 @@ export const CombatModal: React.FC<CombatModalProps> = ({
               <div
                 key={`hero-avatar-${combat.actionTick ?? 0}-${combat.lastHeroHit ? 'hit' : 'ok'}`}
                 className={`relative w-14 h-14 rounded-[4px] bg-[#060e20] border flex items-center justify-center shrink-0 overflow-visible transition-colors ${
-                  combat.lastHeroHit
+                  combat.clutchBarrierActive
+                    ? 'border-[#f59e0b] animate-gold-barrier'
+                    : combat.lastHeroHit
                     ? 'border-[#ef4444] animate-hero-flinch shadow-[0_0_14px_rgba(239,68,68,0.45)]'
                     : combat.heroAction === 'attack'
                     ? 'border-[#f59e0b] animate-hero-lunge shadow-[0_0_16px_rgba(245,158,11,0.45)]'
@@ -188,6 +202,12 @@ export const CombatModal: React.FC<CombatModalProps> = ({
                 {combat.lastHeroHit && (
                   <div
                     className="pointer-events-none absolute inset-0 rounded-[4px] bg-[#ef4444]/65 animate-hit-flash"
+                    aria-hidden="true"
+                  />
+                )}
+                {combat.parryActive && (
+                  <div
+                    className="pointer-events-none absolute inset-0 rounded-[4px] bg-[#06b6d4]/60 animate-parry-flash"
                     aria-hidden="true"
                   />
                 )}
@@ -209,6 +229,14 @@ export const CombatModal: React.FC<CombatModalProps> = ({
                 </div>
               </div>
             </div>
+
+            {/* Gold Clutch Barrier Alert */}
+            {combat.clutchBarrierActive && (
+              <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-[4px] bg-[#f59e0b]/20 border border-[#f59e0b] text-xs font-mono text-[#ffc174] font-bold shadow-[0_0_12px_rgba(245,158,11,0.25)]">
+                <Sparkles className="w-3.5 h-3.5 text-[#fbbf24] animate-spin" />
+                <span>GOLD BARRIER ACTIVE: 0 Damage Next Hit!</span>
+              </div>
+            )}
 
             <SegmentedBar
               current={hero.hp}
@@ -236,7 +264,9 @@ export const CombatModal: React.FC<CombatModalProps> = ({
             {(combat.heroDefending || combat.heroBonusAtk > 0) && (
               <div className="flex flex-wrap items-center gap-2 text-xs font-mono pt-0.5">
                 {combat.heroDefending && (
-                  <span className="text-[#4cd7f6]">Guard Stance Active</span>
+                  <span className="text-[#4cd7f6] font-semibold">
+                    Parry &amp; Counter Active (99% Block + 10% Reflect)
+                  </span>
                 )}
                 {combat.heroBonusAtk > 0 && (
                   <span className="text-[#ffc174]">
@@ -458,9 +488,10 @@ export const CombatModal: React.FC<CombatModalProps> = ({
                   disabled={!isPlayerTurn}
                   onClick={onDefend}
                   className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-[4px] bg-[#06b6d4]/15 border border-[#06b6d4] text-[#4cd7f6] font-display text-sm font-semibold hover:bg-[#06b6d4]/25 active:translate-y-px transition-all disabled:opacity-50 whitespace-nowrap cursor-pointer"
+                  title="Parry & Counter: 99% damage mitigation and reflects 10% counter-damage back!"
                 >
                   <Shield className="w-4 h-4" />
-                  <span>Defend</span>
+                  <span>Defend / Parry</span>
                 </button>
 
                 <button
@@ -477,23 +508,40 @@ export const CombatModal: React.FC<CombatModalProps> = ({
                   <span>Item ({usableItems.reduce((acc, i) => acc + i.quantity, 0)})</span>
                 </button>
 
-                <button
-                  type="button"
-                  disabled={!isPlayerTurn}
-                  onClick={onFlee}
-                  className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-[4px] bg-[#0f172a] border border-white/15 text-[#a08e7a] hover:text-[#dae2fd] hover:border-white/30 font-display text-sm font-semibold transition-all disabled:opacity-50 whitespace-nowrap cursor-pointer"
-                >
-                  <CornerUpLeft className="w-4 h-4" />
-                  <span>Flee</span>
-                </button>
+                {hero.hp / hero.maxHp < 0.1 ? (
+                  <button
+                    type="button"
+                    disabled={!isPlayerTurn}
+                    onClick={onFlee}
+                    className="inline-flex items-center justify-center gap-1.5 px-3 py-3 rounded-[4px] bg-gradient-to-b from-[#475569] to-[#334155] border border-gray-300 text-white font-display text-xs sm:text-sm font-bold shadow-[0_0_14px_rgba(148,163,184,0.5)] hover:brightness-110 transition-all disabled:opacity-50 whitespace-nowrap cursor-pointer"
+                    title="Emergency Smoke Screen (<10% HP): 100% guaranteed safe escape with 0 damage, pushes monster back 1 tile!"
+                  >
+                    <CloudFog className="w-4 h-4 text-[#e2e8f0]" />
+                    <span>Smoke Screen (100%)</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={!isPlayerTurn}
+                    onClick={onFlee}
+                    className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-[4px] bg-[#0f172a] border border-white/15 text-[#a08e7a] hover:text-[#dae2fd] hover:border-white/30 font-display text-sm font-semibold transition-all disabled:opacity-50 whitespace-nowrap cursor-pointer"
+                  >
+                    <CornerUpLeft className="w-4 h-4" />
+                    <span>Flee</span>
+                  </button>
+                )}
               </div>
 
-              <div className="flex items-center justify-between text-[11px] font-mono text-[#a08e7a]">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between text-[11px] font-mono text-[#a08e7a] gap-1">
                 <span className="inline-flex items-center gap-1.5">
                   <Zap className="w-3.5 h-3.5 text-[#f59e0b]" />
-                  <span>Shortcuts: 1 Attack · 2 Defend · 3 Item · 4 Flee</span>
+                  <span>Shortcuts: 1 Attack · 2 Defend/Parry · 3 Item · 4 Flee</span>
                 </span>
-                <span>Crit {Math.round(hero.critChance * 100)}%</span>
+                <span className="text-[#64748b]">
+                  {hero.hp / hero.maxHp < 0.1
+                    ? 'Emergency Smoke Screen Active (<10% HP: 100% Safe)'
+                    : `Crit ${Math.round(hero.critChance * 100)}%`}
+                </span>
               </div>
             </>
           )}

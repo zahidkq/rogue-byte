@@ -225,6 +225,59 @@
   animation: hitFlashOverlay 300ms ease-out forwards;
 }
 
+@keyframes goldBarrierGlow {
+  0%, 100% {
+    box-shadow: 0 0 14px rgba(245, 158, 11, 0.45), inset 0 0 10px rgba(245, 158, 11, 0.25);
+    border-color: #f59e0b;
+  }
+  50% {
+    box-shadow: 0 0 28px rgba(251, 191, 36, 0.85), inset 0 0 20px rgba(251, 191, 36, 0.5);
+    border-color: #fde68a;
+  }
+}
+
+@keyframes parryFlashOverlay {
+  0% {
+    opacity: 0.9;
+    transform: scale(0.92);
+  }
+  45% {
+    opacity: 1;
+    transform: scale(1.04);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.15);
+  }
+}
+
+@keyframes smokePuffFade {
+  0% {
+    opacity: 0.95;
+    transform: scale(0.4) rotate(0deg);
+  }
+  40% {
+    opacity: 0.85;
+    transform: scale(1.25) rotate(12deg);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.65) rotate(25deg);
+  }
+}
+
+.animate-gold-barrier {
+  animation: goldBarrierGlow 1.2s ease-in-out infinite;
+}
+
+.animate-parry-flash {
+  animation: parryFlashOverlay 450ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-smoke-puff {
+  animation: smokePuffFade 1000ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .animate-hit-shake,
   .animate-critical-vignette,

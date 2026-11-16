@@ -4,6 +4,7 @@ import {
   EnemyArchetypeId,
   HeroClassConfig,
   HeroClassId,
+  HeroState,
   InventoryItem,
   InventoryItemId,
   LootDrop,
@@ -863,4 +864,127 @@ export function stepEnemiesTowardHero(
     },
     ambushingEnemy,
   };
+}
+
+/**
+ * Floor Clear Healing:
+ * - If current HP < 70% of Max HP: Restore +25% of Max HP.
+ * - If current HP >= 70% of Max HP: Restore +15% of Max HP.
+ * - Health cannot exceed Max HP (Math.min(currentHP + healAmount, maxHP)).
+ */
+export function calculateFloorClearHealing(
+  currentHp: number,
+  maxHp: number
+): { healAmount: number; newHp: number; percent: 25 | 15 } {
+  const isBelow70 = currentHp < maxHp * 0.7;
+  const percent: 25 | 15 = isBelow70 ? 25 : 15;
+  const healAmount = Math.max(1, Math.round(maxHp * (percent / 100)));
+  const newHp = Math.min(maxHp, currentHp + healAmount);
+  return { healAmount, newHp, percent };
+}
+
+/**
+ * Option B: "Fortified Guard" is selectable only if player Defense is less than 5.
+ */
+export function canSelectFortifiedGuard(def: number): boolean {
+  return def < 5;
+}
+
+/**
+ * Floor Clear Level-Up Boon:
+ * - Option A: "Aggressive Stance" — Permanently increase Attack by +15%.
+ * - Option B: "Fortified Guard" — Permanently increase Defense by +50% (selectable only if DEF < 5).
+ */
+export function applyLevelBoon(
+  hero: HeroState,
+  boon: 'aggressive_stance' | 'fortified_guard'
+): { nextHero: HeroState; statDeltaText: string } {
+  if (boon === 'aggressive_stance') {
+    const bonusAtk = Math.max(1, Math.round(hero.atk * 0.15));
+    return {
+      nextHero: { ...hero, atk: hero.atk + bonusAtk },
+      statDeltaText: `+${bonusAtk} Attack (+15%)`,
+    };
+  } else {
+    if (!canSelectFortifiedGuard(hero.def)) {
+      throw new Error('Fortified Guard requires Defense < 5.');
+    }
+    const bonusDef = Math.max(1, Math.round(hero.def * 0.5));
+    return {
+      nextHero: { ...hero, def: hero.def + bonusDef },
+      statDeltaText: `+${bonusDef} Defense (+50%)`,
+    };
+  }
+}
+
+/**
+ * Clutch Heal Eligibility: HP is below 10% of Max HP.
+ */
+export function isClutchHealEligible(currentHp: number, maxHp: number): boolean {
+  return currentHp / maxHp < 0.1;
+}
+
+/**
+ * Shield Counter-Attack (Parry & Reflect):
+ * - Reduces incoming monster damage to 1% (99% reduction).
+ * - Immediately reflects 10% counter-damage back to the monster.
+ */
+export function calculateParryMitigationAndReflect(
+  rawEnemyDamage: number
+): { dmgTaken: number; counterDamage: number } {
+  const dmgTaken = Math.max(0, Math.round(rawEnemyDamage * 0.01));
+  const counterDamage = Math.max(1, Math.round(rawEnemyDamage * 0.1));
+  return { dmgTaken, counterDamage };
+}
+
+/**
+ * Emergency Smoke Screen Flee Eligibility: HP is below 10% of Max HP.
+ */
+export function isEmergencyFleeEligible(currentHp: number, maxHp: number): boolean {
+  return currentHp / maxHp < 0.1;
+}
+
+/**
+ * Push monster 1 tile backward away from the player on the grid.
+ */
+export function calculateMonsterKnockback(
+  floor: DungeonFloor,
+  heroPos: { x: number; y: number },
+  enemyPos: { x: number; y: number }
+): { x: number; y: number } {
+  let dx = Math.sign(enemyPos.x - heroPos.x);
+  let dy = Math.sign(enemyPos.y - heroPos.y);
+
+  if (dx === 0 && dy === 0) {
+    dx = 1;
+  }
+
+  const primary = { x: enemyPos.x + dx, y: enemyPos.y + dy };
+  const isTileClear = (x: number, y: number) => {
+    if (x < 0 || x >= floor.width || y < 0 || y >= floor.height) return false;
+    if (floor.tiles[y][x] === 'WALL') return false;
+    if (floor.enemies.some((e) => e.x === x && e.y === y && !(e.x === enemyPos.x && e.y === enemyPos.y))) return false;
+    if (x === heroPos.x && y === heroPos.y) return false;
+    return true;
+  };
+
+  if (isTileClear(primary.x, primary.y)) {
+    return primary;
+  }
+
+  // Fallback adjacent tiles away from hero
+  const candidates = [
+    { x: enemyPos.x + dx, y: enemyPos.y },
+    { x: enemyPos.x, y: enemyPos.y + dy },
+    { x: enemyPos.x - dy, y: enemyPos.y + dx },
+    { x: enemyPos.x + dy, y: enemyPos.y - dx },
+  ];
+
+  for (const cand of candidates) {
+    if (isTileClear(cand.x, cand.y)) {
+      return cand;
+    }
+  }
+
+  return { x: enemyPos.x, y: enemyPos.y };
 }

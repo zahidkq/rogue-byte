@@ -7,6 +7,7 @@ interface DungeonCanvasProps {
   hero: HeroState;
   popups: FloatingPopup[];
   lastStep?: { dx: number; dy: number; seq: number; isBump?: boolean };
+  smokeScreen?: { x: number; y: number; tick: number } | null;
   onTileClick: (x: number, y: number) => void;
 }
 
@@ -15,6 +16,7 @@ export const DungeonCanvas: React.FC<DungeonCanvasProps> = ({
   hero,
   popups,
   lastStep,
+  smokeScreen,
   onTileClick,
 }) => {
   const heroFlipped =
@@ -175,6 +177,17 @@ export const DungeonCanvas: React.FC<DungeonCanvasProps> = ({
                           />
                         </div>
                       </div>
+                    </div>
+                  )}
+
+                  {/* Gray puff / smoke screen animation */}
+                  {smokeScreen && smokeScreen.x === x && smokeScreen.y === y && (
+                    <div
+                      key={`smoke-${smokeScreen.tick}`}
+                      className="pointer-events-none absolute inset-[-35%] z-40 flex items-center justify-center animate-smoke-puff"
+                      aria-hidden="true"
+                    >
+                      <div className="w-full h-full rounded-full bg-gradient-to-tr from-gray-600/80 via-gray-400/90 to-slate-200/90 blur-[3px] shadow-[0_0_20px_rgba(156,163,175,0.8)]" />
                     </div>
                   )}
 
