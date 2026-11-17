@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Award, Home, RotateCcw, Sword, Trophy } from 'lucide-react';
+import { Award, Home, MessageSquare, RotateCcw, Sword, Trophy } from 'lucide-react';
 import { CareerRecords, HighScoreEntry } from '../types/game';
 import { LeaderboardPanel } from './LeaderboardPanel';
 import { HeroSprite } from './Sprites';
@@ -10,6 +10,7 @@ interface VictoryScreenProps {
   career: CareerRecords;
   onPlayAgain: () => void;
   onReturnTitle: () => void;
+  onOpenFeedback?: () => void;
 }
 
 export const VictoryScreen: React.FC<VictoryScreenProps> = ({
@@ -18,6 +19,7 @@ export const VictoryScreen: React.FC<VictoryScreenProps> = ({
   career,
   onPlayAgain,
   onReturnTitle,
+  onOpenFeedback,
 }) => {
   const [view, setView] = useState<'summary' | 'leaderboard'>('summary');
   const relic = runSummary.legendaryWeapon;
@@ -169,6 +171,17 @@ export const VictoryScreen: React.FC<VictoryScreenProps> = ({
               <Trophy className="w-4 h-4" />
               <span>{view === 'summary' ? 'View Leaderboard' : 'View Summary'}</span>
             </button>
+            {onOpenFeedback && (
+              <button
+                type="button"
+                onClick={onOpenFeedback}
+                className="inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-[4px] bg-[#06b6d4]/10 border border-[#06b6d4]/40 text-[#4cd7f6] font-display text-sm font-semibold hover:bg-[#06b6d4]/20 transition-colors whitespace-nowrap cursor-pointer"
+                title="Send developer feedback"
+              >
+                <MessageSquare className="w-4 h-4" />
+                <span>Feedback</span>
+              </button>
+            )}
             <button
               type="button"
               onClick={onReturnTitle}

@@ -111,6 +111,15 @@ export interface DungeonFloor {
   stairsPos: { x: number; y: number };
 }
 
+export interface StatusEffect {
+  id: string;
+  type: 'poison' | 'slow';
+  name: string;
+  duration: number;
+  potency: number;
+  icon: string;
+}
+
 export interface HeroState {
   classId: HeroClassId;
   playerName?: string;
@@ -133,6 +142,7 @@ export interface HeroState {
   weaponName: string;
   armorName: string;
   legendaryWeapon?: LegendaryWeapon;
+  statusEffects?: StatusEffect[];
 }
 
 export interface LegendaryWeapon {
@@ -178,6 +188,9 @@ export interface CombatState {
   legendaryDropLoading: boolean;
   clutchBarrierActive?: boolean;
   parryActive?: boolean;
+  damageDealtInFight?: number;
+  parriesLandedInFight?: number;
+  bossPartingWords?: string;
 }
 
 export interface MerchantItem {
@@ -221,6 +234,10 @@ export interface ActiveRunState {
   customMapName?: string;
   floorBoonClaimedFloor?: number;
   smokeScreen?: { x: number; y: number; tick: number } | null;
+  totalDamageDealt?: number;
+  parriesLandedTotal?: number;
+  stepsTakenTotal?: number;
+  poisonStepCounter?: number;
   startedAt: number;
 }
 
@@ -236,6 +253,11 @@ export interface HighScoreEntry {
   victory?: boolean;
   causeOfDeath: string;
   legendaryWeapon?: LegendaryWeapon;
+  totalDamageDealt?: number;
+  parriesLanded?: number;
+  stepsTaken?: number;
+  potionsUsed?: number;
+  performanceRank?: string;
   timestamp: number;
 }
 

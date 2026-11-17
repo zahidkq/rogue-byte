@@ -3,8 +3,10 @@ import {
   BookOpen,
   CloudFog,
   Compass,
+  FlaskConical,
   HeartPulse,
   Keyboard,
+  MessageSquare,
   Shield,
   ShoppingBag,
   Sparkles,
@@ -339,6 +341,80 @@ export const HowToPlayModal: React.FC<HowToPlayModalProps> = ({ onClose }) => {
                     If HP &gt;= 10%, standard 65% escape chance applies.
                   </li>
                 </ul>
+              </div>
+            </div>
+          </section>
+
+          {/* 5. Modular Status Effects & Cleansing */}
+          <section className="flex flex-col gap-3 pt-4 border-t border-white/10">
+            <div className="flex items-center gap-2 text-sm font-display font-bold text-[#10b981]">
+              <FlaskConical className="w-4 h-4 shrink-0" />
+              <h3>Modular Status Effects &amp; Cleansing</h3>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+              {/* Poison Debuff */}
+              <div className="rounded-[4px] bg-[#131b2e] border border-white/10 p-3.5 flex flex-col gap-2">
+                <div className="flex items-center gap-2 font-display font-bold text-[#6ee7b7]">
+                  <span>🧪 Poison Debuff</span>
+                </div>
+                <p className="text-[#d8c3ad] leading-relaxed">
+                  Inflicted by venomous beasts (25% chance on strike) and the Sanctum Overlord:
+                </p>
+                <ul className="flex flex-col gap-1 text-[#a08e7a] font-mono list-disc list-inside">
+                  <li>
+                    <strong className="text-[#dae2fd]">In Combat:</strong> Burns for <span className="text-[#ef4444]">3–5 HP</span> tick damage at the start of your turn.
+                  </li>
+                  <li>
+                    <strong className="text-[#dae2fd]">In Exploration:</strong> Deals <span className="text-[#ef4444]">1 damage every 3 steps</span> moved on the grid.
+                  </li>
+                  <li>
+                    Displays green floating damage text and flash on the hero sprite.
+                  </li>
+                </ul>
+              </div>
+
+              {/* Slow Debuff */}
+              <div className="rounded-[4px] bg-[#131b2e] border border-white/10 p-3.5 flex flex-col gap-2">
+                <div className="flex items-center gap-2 font-display font-bold text-[#4cd7f6]">
+                  <span>❄️ Slow Debuff</span>
+                </div>
+                <p className="text-[#d8c3ad] leading-relaxed">
+                  Inflicted by cryogenic golems (20% chance on strike) and the Sanctum Overlord:
+                </p>
+                <ul className="flex flex-col gap-1 text-[#a08e7a] font-mono list-disc list-inside">
+                  <li>
+                    <strong className="text-[#dae2fd]">In Exploration:</strong> Enemies move <span className="text-[#ffc174]">2 steps</span> for every 1 step you take!
+                  </li>
+                  <li>
+                    <strong className="text-[#dae2fd]">In Combat:</strong> Decreases normal escape/flee probability to 35%.
+                  </li>
+                </ul>
+              </div>
+
+              {/* Cleansing */}
+              <div className="rounded-[4px] bg-[#131b2e] border border-white/10 p-3.5 flex flex-col gap-2 sm:col-span-2">
+                <div className="flex items-center gap-2 font-display font-bold text-[#fbbf24]">
+                  <Sparkles className="w-4 h-4 shrink-0 text-[#fbbf24]" />
+                  <span>Cleansing &amp; In-App Feedback Channel</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-[#d8c3ad]">
+                  <div>
+                    <strong className="text-[#6ee7b7]">Debuff Cleansing:</strong>
+                    <p className="text-[#a08e7a] mt-0.5">
+                      Consuming a Nano-Med Vial immediately cleanses all active debuffs (Poison &amp; Slow) while restoring HP. Descending to the next floor also naturally purges all status effects.
+                    </p>
+                  </div>
+                  <div>
+                    <strong className="text-[#4cd7f6] flex items-center gap-1.5">
+                      <MessageSquare className="w-3.5 h-3.5" />
+                      In-App Developer Feedback:
+                    </strong>
+                    <p className="text-[#a08e7a] mt-0.5">
+                      Encountered a bug or have a suggestion? Click the discreet "💬 Feedback" button in the HUD, Title screen, or victory screens to transmit feedback directly to the developers.
+                    </p>
+                  </div>
+                </div>
               </div>
             </div>
           </section>

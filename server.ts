@@ -239,6 +239,25 @@ async function createApp() {
     }
   });
 
+  // In-App Feedback Endpoint (Internal recipient configured securely on backend)
+  app.post('/api/feedback', async (req, res) => {
+    try {
+      const feedback = req.body || {};
+      const internalRecipient = 'zahidkhanq10@gmail.com';
+      console.log(`[Feedback Received for ${internalRecipient}]:`, {
+        category: feedback.category,
+        rating: feedback.rating,
+        sender: feedback.playerName || feedback.email || 'Anonymous',
+        message: feedback.message,
+        timestamp: new Date().toISOString(),
+      });
+      res.json({ success: true });
+    } catch (err) {
+      console.error('Error handling feedback:', err);
+      res.status(500).json({ success: false, error: 'Internal feedback error' });
+    }
+  });
+
   if (process.env.NODE_ENV !== 'production') {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({

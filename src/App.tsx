@@ -11,6 +11,7 @@ import {
   HelpCircle,
   LayoutGrid,
   LogOut,
+  MessageSquare,
   Shield,
   Sword,
   Volume2,
@@ -19,6 +20,7 @@ import {
 } from 'lucide-react';
 import { CombatModal } from './components/CombatModal';
 import { DungeonCanvas } from './components/DungeonCanvas';
+import { FeedbackModal } from './components/FeedbackModal';
 import { FloorTransitionModal } from './components/FloorTransitionModal';
 import { GameOverScreen } from './components/GameOverScreen';
 import { HowToPlayModal } from './components/HowToPlayModal';
@@ -27,9 +29,20 @@ import { LevelBuilderModal } from './components/LevelBuilderModal';
 import { LevelUpBoonModal } from './components/LevelUpBoonModal';
 import { SegmentedBar } from './components/SegmentedBar';
 import { ItemIcon } from './components/Sprites';
+import { StatusBadges } from './components/StatusBadges';
 import { TitleScreen } from './components/TitleScreen';
 import { VictoryScreen } from './components/VictoryScreen';
 import { customMapToDungeonFloor } from './engine/customMap';
+import {
+  applyStatusEffect,
+  cleanseStatusEffects,
+  createStatusEffect,
+  hasStatusEffect,
+  rollEnemyAttackStatusEffects,
+  tickCombatStatusEffects,
+  tickExplorationStep,
+  calculateFleeProbability,
+} from './engine/statusEffects';
 import {
   addInventoryItem,
   applyLevelBoon,
@@ -107,6 +120,7 @@ export default function App() {
   const [inventoryOpen, setInventoryOpen] = useState(false);
   const [floorTransitionOpen, setFloorTransitionOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [controlsTipDismissed, setControlsTipDismissed] = useState<boolean>(() =>
     loadControlsTipDismissed()
   );
@@ -221,6 +235,7 @@ export default function App() {
       score: 0,
       weaponLevel: 1,
       armorLevel: 1,
+      statusEffects: [],
       weaponName:
         classId === 'volt'
           ? 'Arc Twinblades'
@@ -253,6 +268,10 @@ export default function App() {
       roomsDiscovered: 1,
       encounteredArchetypes: [],
       purchasedShopIds: [],
+      totalDamageDealt: 0,
+      parriesLandedTotal: 0,
+      stepsTakenTotal: 0,
+      poisonStepCounter: 0,
       startedAt: Date.now(),
     };
 
@@ -305,6 +324,7 @@ export default function App() {
         score: 0,
         weaponLevel: 1,
         armorLevel: 1,
+        statusEffects: [],
         weaponName:
           selectedClass === 'volt'
             ? 'Arc Twinblades'
@@ -337,6 +357,10 @@ export default function App() {
         roomsDiscovered: 1,
         encounteredArchetypes: [],
         purchasedShopIds: [],
+        totalDamageDealt: 0,
+        parriesLandedTotal: 0,
+        stepsTakenTotal: 0,
+        poisonStepCounter: 0,
         isCustomMap: true,
         customMapId: customMap.id,
         customMapName: customMap.name,
@@ -561,6 +585,29 @@ export default function App() {
             })
           : null;
 
+      let combatStartHero = run ? run.hero : null;
+      const initialLogs: CombatLogEntry[] = [
+        {
+          id: uid('clog'),
+          text: ambushed
+            ? `${enemy.name} intercepted your path! Choose your action.`
+            : `Encountered ${enemy.name} (HP ${enemy.hp}/${enemy.maxHp}).`,
+          tone: 'system',
+        },
+      ];
+
+      if (combatStartHero && hasStatusEffect(combatStartHero, 'poison')) {
+        const { nextHero, poisonDamage, logMessages } = tickCombatStatusEffects(combatStartHero);
+        combatStartHero = nextHero;
+        setRun((r) => (r ? { ...r, hero: nextHero } : r));
+        for (const msg of logMessages) {
+          initialLogs.push({ id: uid('clog'), text: msg, tone: 'enemy' });
+        }
+        if (poisonDamage > 0) {
+          sound.playEnemyHit();
+        }
+      }
+
       setCombat({
         enemy: { ...enemy },
         turnNumber: 1,
@@ -568,15 +615,7 @@ export default function App() {
         heroBonusAtk: 0,
         enemyStunned: false,
         phase: 'PLAYER_TURN',
-        logs: [
-          {
-            id: uid('clog'),
-            text: ambushed
-              ? `${enemy.name} intercepted your path! Choose your action.`
-              : `Encountered ${enemy.name} (HP ${enemy.hp}/${enemy.maxHp}).`,
-            tone: 'system',
-          },
-        ],
+        logs: initialLogs,
         lastHeroHit: false,
         lastEnemyHit: false,
         heroAction: null,
@@ -823,14 +862,18 @@ export default function App() {
       const steppedOnStairs = nextFloor.tiles[ny][nx] === 'STAIRS';
       if (steppedOnStairs) {
         sound.playStairs();
+        // Completing/reaching stairs cleanses all debuffs immediately
+        const cleansedHero = cleanseStatusEffects(nextHero);
         const stairRun: ActiveRunState = {
           ...run,
-          hero: nextHero,
+          hero: cleansedHero,
           floor: nextFloor,
           inventory: nextInventory,
           logs: nextLogs,
           turn: nextTurn,
           trapsTriggered: nextTrapsTriggered,
+          stepsTakenTotal: (run.stepsTakenTotal || 0) + 1,
+          poisonStepCounter: 0,
         };
 
         if (run.isCustomMap) {
@@ -844,7 +887,7 @@ export default function App() {
         nextLogs = appendLog(
           nextLogs,
           nextTurn,
-          `Reached the descent stairs on Floor ${nextFloor.floorNumber}.`,
+          `Reached the descent stairs on Floor ${nextFloor.floorNumber}. Status debuffs cleansed.`,
           'amber'
         );
         stairRun.logs = nextLogs;
@@ -852,8 +895,8 @@ export default function App() {
 
         if (stairRun.floorBoonClaimedFloor !== nextFloor.floorNumber) {
           const { healAmount, newHp, percent } = calculateFloorClearHealing(
-            nextHero.hp,
-            nextHero.maxHp
+            cleansedHero.hp,
+            cleansedHero.maxHp
           );
           setLevelUpBoonData({
             floorNumber: nextFloor.floorNumber,
@@ -867,8 +910,54 @@ export default function App() {
         return;
       }
 
-      // Enemy AI takes 1 step toward hero
-      const { updatedFloor, ambushingEnemy } = stepEnemiesTowardHero(nextFloor, nx, ny);
+      // Step counter and exploration status effect tick (Poison: 1 dmg every 3 steps)
+      const nextStepsTaken = (run.stepsTakenTotal || 0) + 1;
+      const {
+        nextHero: heroAfterStatus,
+        nextPoisonStepCounter,
+        poisonDamage,
+        isPoisonTick,
+        slowActive,
+        logMessages: statusMsgs,
+      } = tickExplorationStep(nextHero, run.poisonStepCounter || 0);
+      nextHero = heroAfterStatus;
+
+      if (isPoisonTick && poisonDamage > 0) {
+        sound.playTrap();
+        spawnPopup(nx, ny, `-${poisonDamage} POISON`, '#10b981');
+        for (const msg of statusMsgs) {
+          nextLogs = appendLog(nextLogs, nextTurn, msg, 'crimson');
+        }
+        if (nextHero.hp <= 0) {
+          const fatalRun: ActiveRunState = {
+            ...run,
+            hero: nextHero,
+            floor: nextFloor,
+            inventory: nextInventory,
+            logs: nextLogs,
+            turn: nextTurn,
+            trapsTriggered: nextTrapsTriggered,
+            stepsTakenTotal: nextStepsTaken,
+            poisonStepCounter: nextPoisonStepCounter,
+          };
+          setRun(fatalRun);
+          triggerGameOver(
+            fatalRun,
+            `Succumbed to toxic cyber-venom on Floor ${nextFloor.floorNumber}`
+          );
+          return;
+        }
+      }
+
+      // Enemy AI takes step toward hero (Slow: enemies move 2 steps for every 1 step the player moves)
+      let { updatedFloor, ambushingEnemy } = stepEnemiesTowardHero(nextFloor, nx, ny);
+      if (slowActive && !ambushingEnemy) {
+        const secondStep = stepEnemiesTowardHero(updatedFloor, nx, ny);
+        updatedFloor = secondStep.updatedFloor;
+        if (secondStep.ambushingEnemy) {
+          ambushingEnemy = secondStep.ambushingEnemy;
+        }
+      }
 
       const updatedRun: ActiveRunState = {
         ...run,
@@ -878,6 +967,8 @@ export default function App() {
         logs: nextLogs,
         turn: nextTurn,
         trapsTriggered: nextTrapsTriggered,
+        stepsTakenTotal: nextStepsTaken,
+        poisonStepCounter: nextPoisonStepCounter,
       };
 
       setRun(updatedRun);
@@ -1176,12 +1267,26 @@ export default function App() {
             });
           }
 
-          setRun((r) => (r ? { ...r, hero: nextHero } : r));
+          let heroWithEffects = nextHero;
+          if (!prev.heroDefending) {
+            const isBossUnit = Boolean(prev.enemy.isBoss || prev.enemy.archetypeId === 'floor_warden');
+            const inflicted = rollEnemyAttackStatusEffects(prev.enemy.archetypeId, isBossUnit);
+            for (const eff of inflicted) {
+              heroWithEffects = applyStatusEffect(heroWithEffects, eff);
+              logsToAdd.push({
+                id: uid('clog'),
+                text: `${prev.enemy.name} inflicted ${eff.name.toUpperCase()}! (${eff.icon} ${eff.duration} turns)`,
+                tone: eff.type === 'poison' ? 'crit' : 'system',
+              });
+            }
+          }
 
-          if (nextHero.hp <= 0) {
+          setRun((r) => (r ? { ...r, hero: heroWithEffects } : r));
+
+          if (heroWithEffects.hp <= 0) {
             if (run) {
               triggerGameOver(
-                { ...run, hero: nextHero },
+                { ...run, hero: heroWithEffects },
                 `Slain by ${prev.enemy.name} on Floor ${run.floor.floorNumber}`
               );
             }
@@ -1199,7 +1304,7 @@ export default function App() {
             sound.playVictory();
             if (isBossEnemy(enemyAfterReflect) && run) {
               triggerBossLegendaryWeapon(
-                nextHero,
+                heroWithEffects,
                 prev.turnNumber,
                 prev.potionsUsed,
                 run.hero.score + prev.rewardScore + 500,
@@ -1227,9 +1332,9 @@ export default function App() {
               };
             }
 
-            if (isBossEnemy(enemyAfterReflect) && nextHero.hp / nextHero.maxHp <= 0.35) {
+            if (isBossEnemy(enemyAfterReflect) && heroWithEffects.hp / heroWithEffects.maxHp <= 0.35) {
               triggerBossRoast(
-                nextHero,
+                heroWithEffects,
                 enemyAfterReflect,
                 prev.turnNumber + 1,
                 prev.potionsUsed,
@@ -1238,13 +1343,50 @@ export default function App() {
               );
             }
 
+            // Start of Player Turn: Tick Status Effects (e.g. Poison tick damage)
+            const {
+              nextHero: heroAfterTurnTick,
+              poisonDamage: turnPoisonDmg,
+              logMessages: statusTurnMsgs,
+            } = tickCombatStatusEffects(heroWithEffects);
+
+            for (const msg of statusTurnMsgs) {
+              logsToAdd.push({
+                id: uid('clog'),
+                text: msg,
+                tone: turnPoisonDmg > 0 ? 'enemy' : 'system',
+              });
+            }
+
+            if (turnPoisonDmg > 0) {
+              sound.playEnemyHit();
+            }
+
+            setRun((r) => (r ? { ...r, hero: heroAfterTurnTick } : r));
+
+            if (heroAfterTurnTick.hp <= 0) {
+              if (run) {
+                triggerGameOver(
+                  { ...run, hero: heroAfterTurnTick },
+                  `Succumbed to poison in battle against ${prev.enemy.name} on Floor ${run.floor.floorNumber}`
+                );
+              }
+              return {
+                ...prev,
+                enemy: enemyAfterReflect,
+                phase: 'DEFEAT',
+                lastHeroHit: true,
+                logs: [...prev.logs, ...logsToAdd],
+              };
+            }
+
             return {
               ...prev,
               enemy: enemyAfterReflect,
               heroDefending: false,
               turnNumber: prev.turnNumber + 1,
               phase: 'PLAYER_TURN',
-              lastHeroHit: true,
+              lastHeroHit: turnPoisonDmg > 0 || !prev.heroDefending,
               lastEnemyHit: false,
               heroAction: 'flinch',
               actionTick: (prev.actionTick ?? 0) + 1,
@@ -1273,6 +1415,10 @@ export default function App() {
 
     if (isCrit) sound.playCrit();
     else sound.playHit();
+
+    const nextDamageTotal = (run.totalDamageDealt || 0) + finalDmg;
+    const fightDamageTotal = (combat.damageDealtInFight || 0) + finalDmg;
+    setRun((r) => (r ? { ...r, totalDamageDealt: nextDamageTotal } : r));
 
     const nextEnemyHp = Math.max(0, combat.enemy.hp - finalDmg);
     const updatedEnemy = { ...combat.enemy, hp: nextEnemyHp };
@@ -1304,6 +1450,7 @@ export default function App() {
         actionTick: (combat.actionTick ?? 0) + 1,
         droppedItemName: dropId ? ITEM_CATALOG[dropId].name : null,
         legendaryDropLoading: bossKilled,
+        damageDealtInFight: fightDamageTotal,
         logs: [
           ...combat.logs,
           strikeLog,
@@ -1355,11 +1502,14 @@ export default function App() {
 
     const healed = Math.min(2, run.hero.maxHp - run.hero.hp);
     const nextHero = { ...run.hero, hp: run.hero.hp + healed };
-    setRun((r) => (r ? { ...r, hero: nextHero } : r));
+    const nextParriesTotal = (run.parriesLandedTotal || 0) + 1;
+    const fightParriesTotal = (combat.parriesLandedInFight || 0) + 1;
+    setRun((r) => (r ? { ...r, hero: nextHero, parriesLandedTotal: nextParriesTotal } : r));
 
     const intermediate: CombatState = {
       ...combat,
       heroDefending: true,
+      parriesLandedInFight: fightParriesTotal,
       phase: 'ANIMATING',
       lastHeroHit: false,
       lastEnemyHit: false,
@@ -1412,12 +1562,16 @@ export default function App() {
     if (itemId === 'med_vial') {
       const healAmt = Math.min(14, nextHero.maxHp - nextHero.hp);
       nextHero.hp += healAmt;
+      const hadDebuffs = (nextHero.statusEffects?.length || 0) > 0;
+      nextHero = cleanseStatusEffects(nextHero);
       sound.playPotion();
       logEntry = {
         id: uid('clog'),
         text: isClutch
-          ? `Used Nano-Med Vial (+${healAmt} HP). Critical condition activated Gold Barrier!`
-          : `Used Nano-Med Vial (+${healAmt} HP).`,
+          ? `Used Nano-Med Vial (+${healAmt} HP). Critical condition activated Gold Barrier!${
+              hadDebuffs ? ' Cleansed debuffs!' : ''
+            }`
+          : `Used Nano-Med Vial (+${healAmt} HP)${hadDebuffs ? ' · Cleansed debuffs!' : ''}.`,
         tone: isClutch ? 'crit' : 'heal',
       };
     } else if (itemId === 'aegis_cell') {
@@ -1482,6 +1636,7 @@ export default function App() {
         actionTick: (combat.actionTick ?? 0) + 1,
         droppedItemName: dropId ? ITEM_CATALOG[dropId].name : null,
         legendaryDropLoading: bossKilled,
+        damageDealtInFight: fightDamageTotal,
         logs: [
           ...combat.logs,
           logEntry,
@@ -1588,8 +1743,9 @@ export default function App() {
       return;
     }
 
-    // Standard flee rules if HP >= 10%
-    const escaped = Math.random() < 0.65;
+    // Flee rules if HP >= 10% (Slow status reduces escape probability to 35%)
+    const fleeChance = calculateFleeProbability(run.hero);
+    const escaped = Math.random() < fleeChance;
     if (escaped) {
       if (roastAbortRef.current) {
         roastAbortRef.current.abort();
@@ -1642,6 +1798,7 @@ export default function App() {
     }
 
     // Failed to flee -> enemy strikes
+    const isSlowed = hasStatusEffect(run.hero, 'slow');
     const intermediate: CombatState = {
       ...combat,
       heroDefending: false,
@@ -1650,7 +1807,9 @@ export default function App() {
         ...combat.logs,
         {
           id: uid('clog'),
-          text: `Failed to break away from ${combat.enemy.name}!`,
+          text: isSlowed
+            ? `Sluggish movement dragged you down! Failed to break away from ${combat.enemy.name}!`
+            : `Failed to break away from ${combat.enemy.name}!`,
           tone: 'enemy',
         },
       ],
@@ -1759,11 +1918,13 @@ export default function App() {
     let nextHero = { ...run.hero };
     let msg = '';
     if (itemId === 'med_vial') {
-      if (nextHero.hp >= nextHero.maxHp) return;
+      if (nextHero.hp >= nextHero.maxHp && (!nextHero.statusEffects || nextHero.statusEffects.length === 0)) return;
       const heal = Math.min(14, nextHero.maxHp - nextHero.hp);
       nextHero.hp += heal;
+      const hadDebuffs = (nextHero.statusEffects?.length || 0) > 0;
+      nextHero = cleanseStatusEffects(nextHero);
       sound.playPotion();
-      msg = `Used Nano-Med Vial (+${heal} HP).`;
+      msg = `Used Nano-Med Vial (+${heal} HP)${hadDebuffs ? ' · Cleansed all active status debuffs!' : '.'}`;
       spawnPopup(nextHero.x, nextHero.y, `+${heal} HP`, '#10b981');
     } else if (itemId === 'aegis_cell') {
       nextHero.shield += 10;
@@ -1782,6 +1943,7 @@ export default function App() {
       ...run,
       hero: nextHero,
       inventory: nextInv,
+      potionsUsedTotal: (run.potionsUsedTotal || 0) + (itemId === 'med_vial' ? 1 : 0),
       logs: appendLog(run.logs, run.turn, msg, 'emerald'),
     });
   };
@@ -1946,14 +2108,16 @@ export default function App() {
     );
 
     sound.playStairs();
+    const cleansedHero = cleanseStatusEffects(run.hero);
     setRun({
       ...run,
       hero: {
-        ...run.hero,
+        ...cleansedHero,
         x: spawnPos.x,
         y: spawnPos.y,
         score: run.hero.score + floorBonus,
       },
+      poisonStepCounter: 0,
       floor: updatedFloor,
       logs: appendLog(
         run.logs,
@@ -1999,8 +2163,15 @@ export default function App() {
           onToggleSound={toggleSound}
           onOpenHelp={() => setHelpOpen(true)}
           onOpenBuilder={() => setScreen('BUILDER')}
+          onOpenFeedback={() => setFeedbackOpen(true)}
         />
         {helpOpen && <HowToPlayModal onClose={() => setHelpOpen(false)} />}
+        {feedbackOpen && (
+          <FeedbackModal
+            onClose={() => setFeedbackOpen(false)}
+            initialPlayerName={playerName}
+          />
+        )}
       </>
     );
   }
@@ -2018,37 +2189,65 @@ export default function App() {
 
   if (screen === 'GAME_OVER' && gameOverSummary) {
     return (
-      <GameOverScreen
-        runSummary={gameOverSummary.entry}
-        isNewBest={gameOverSummary.isNewBest}
-        career={career}
-        onPlayAgain={() => {
-          if (run?.isCustomMap && customMapDraft) {
-            handleStartCustomMapRun(customMapDraft);
-          } else {
-            startNewRun(gameOverSummary.entry.classId);
-          }
-        }}
-        onReturnTitle={() => setScreen('TITLE')}
-      />
+      <>
+        <GameOverScreen
+          runSummary={gameOverSummary.entry}
+          isNewBest={gameOverSummary.isNewBest}
+          career={career}
+          onPlayAgain={() => {
+            if (run?.isCustomMap && customMapDraft) {
+              handleStartCustomMapRun(customMapDraft);
+            } else {
+              startNewRun(gameOverSummary.entry.classId);
+            }
+          }}
+          onReturnTitle={() => setScreen('TITLE')}
+          onOpenFeedback={() => setFeedbackOpen(true)}
+        />
+        {feedbackOpen && (
+          <FeedbackModal
+            onClose={() => setFeedbackOpen(false)}
+            runTelemetry={{
+              floor: gameOverSummary.entry.floorReached,
+              score: gameOverSummary.entry.score,
+              gold: gameOverSummary.entry.gold,
+            }}
+            initialPlayerName={gameOverSummary.entry.playerName || playerName}
+          />
+        )}
+      </>
     );
   }
 
   if (screen === 'VICTORY' && gameOverSummary) {
     return (
-      <VictoryScreen
-        runSummary={gameOverSummary.entry}
-        isNewBest={gameOverSummary.isNewBest}
-        career={career}
-        onPlayAgain={() => {
-          if (run?.isCustomMap && customMapDraft) {
-            handleStartCustomMapRun(customMapDraft);
-          } else {
-            startNewRun(gameOverSummary.entry.classId);
-          }
-        }}
-        onReturnTitle={() => setScreen('TITLE')}
-      />
+      <>
+        <VictoryScreen
+          runSummary={gameOverSummary.entry}
+          isNewBest={gameOverSummary.isNewBest}
+          career={career}
+          onPlayAgain={() => {
+            if (run?.isCustomMap && customMapDraft) {
+              handleStartCustomMapRun(customMapDraft);
+            } else {
+              startNewRun(gameOverSummary.entry.classId);
+            }
+          }}
+          onReturnTitle={() => setScreen('TITLE')}
+          onOpenFeedback={() => setFeedbackOpen(true)}
+        />
+        {feedbackOpen && (
+          <FeedbackModal
+            onClose={() => setFeedbackOpen(false)}
+            runTelemetry={{
+              floor: gameOverSummary.entry.floorReached,
+              score: gameOverSummary.entry.score,
+              gold: gameOverSummary.entry.gold,
+            }}
+            initialPlayerName={gameOverSummary.entry.playerName || playerName}
+          />
+        )}
+      </>
     );
   }
 
@@ -2095,8 +2294,8 @@ export default function App() {
             </div>
           </div>
 
-          {/* Center: HP & Shield Meters */}
-          <div className="flex items-center gap-4 flex-1 max-w-xs min-w-[170px]">
+          {/* Center: HP & Shield Meters & Status Badges */}
+          <div className="flex flex-col gap-1 flex-1 max-w-xs min-w-[170px]">
             <SegmentedBar
               current={run.hero.hp}
               max={run.hero.maxHp}
@@ -2104,6 +2303,7 @@ export default function App() {
               label={run.hero.shield > 0 ? `HP · +${run.hero.shield} SHD` : 'HP'}
               className="w-full"
             />
+            <StatusBadges statusEffects={run.hero.statusEffects} size="sm" />
           </div>
 
           {/* Right: Action Buttons */}
@@ -2136,6 +2336,16 @@ export default function App() {
               <HelpCircle className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">How to Play</span>
               <span className="sm:hidden">Help</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setFeedbackOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-[4px] bg-[#06b6d4]/10 border border-[#06b6d4]/40 text-[#4cd7f6] text-xs font-mono font-semibold hover:bg-[#06b6d4]/20 transition-colors whitespace-nowrap cursor-pointer"
+              title="Send direct developer feedback"
+            >
+              <MessageSquare className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Feedback</span>
             </button>
 
             <button
@@ -2445,11 +2655,20 @@ export default function App() {
           combat={combat}
           hero={run.hero}
           inventory={run.inventory}
+          runStats={{
+            monstersSlain: run.enemiesDefeated,
+            totalDamageDealt: (run.totalDamageDealt || 0) + (combat.damageDealtInFight || 0),
+            goldCollected: run.hero.gold,
+            stepsTaken: run.stepsTakenTotal || 0,
+            potionsUsed: (run.potionsUsedTotal || 0) + combat.potionsUsed,
+            parriesLanded: (run.parriesLandedTotal || 0) + (combat.parriesLandedInFight || 0),
+          }}
           onAttack={handleCombatAttack}
           onDefend={handleCombatDefend}
           onUseItem={handleCombatUseItem}
           onFlee={handleCombatFlee}
           onVictoryContinue={handleVictoryContinue}
+          onOpenFeedback={() => setFeedbackOpen(true)}
         />
       )}
 
@@ -2495,6 +2714,19 @@ export default function App() {
 
       {/* How to Play Guide Modal */}
       {helpOpen && <HowToPlayModal onClose={() => setHelpOpen(false)} />}
+
+      {/* In-App Feedback Dialog Modal */}
+      {feedbackOpen && (
+        <FeedbackModal
+          onClose={() => setFeedbackOpen(false)}
+          runTelemetry={{
+            floor: run.floor.floorNumber,
+            score: run.hero.score,
+            gold: run.hero.gold,
+          }}
+          initialPlayerName={run.hero.playerName || playerName}
+        />
+      )}
     </div>
   );
 }

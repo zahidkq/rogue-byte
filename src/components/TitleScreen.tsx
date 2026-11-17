@@ -1,5 +1,5 @@
 import React from 'react';
-import { Shield, Sword, Trophy, Volume2, VolumeX, Play, RotateCcw, Eye, HelpCircle, LayoutGrid } from 'lucide-react';
+import { Shield, Sword, Trophy, Volume2, VolumeX, Play, RotateCcw, Eye, HelpCircle, LayoutGrid, MessageSquare } from 'lucide-react';
 import { HERO_CLASSES } from '../engine/dungeon';
 import { ActiveRunState, CareerRecords, HeroClassId } from '../types/game';
 import { HeroSprite } from './Sprites';
@@ -18,6 +18,7 @@ interface TitleScreenProps {
   onToggleSound: () => void;
   onOpenHelp: () => void;
   onOpenBuilder: () => void;
+  onOpenFeedback?: () => void;
 }
 
 export const TitleScreen: React.FC<TitleScreenProps> = ({
@@ -34,6 +35,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
   onToggleSound,
   onOpenHelp,
   onOpenBuilder,
+  onOpenFeedback,
 }) => {
   const classes = Object.values(HERO_CLASSES);
 
@@ -60,6 +62,17 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
             <LayoutGrid className="w-4 h-4" />
             <span>Level Builder</span>
           </button>
+          {onOpenFeedback && (
+            <button
+              type="button"
+              onClick={onOpenFeedback}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-[4px] bg-[#06b6d4]/10 border border-[#06b6d4]/40 text-xs font-mono font-semibold text-[#4cd7f6] hover:bg-[#06b6d4]/20 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              title="Submit feedback directly to development team"
+            >
+              <MessageSquare className="w-3.5 h-3.5" />
+              <span>Feedback</span>
+            </button>
+          )}
           <button
             type="button"
             onClick={onOpenHelp}

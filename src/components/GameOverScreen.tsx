@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Home, RotateCcw, Skull, Trophy } from 'lucide-react';
+import { Home, MessageSquare, RotateCcw, Skull, Trophy } from 'lucide-react';
 import { CareerRecords, HighScoreEntry } from '../types/game';
 import { LeaderboardPanel } from './LeaderboardPanel';
 import { HeroSprite } from './Sprites';
@@ -10,6 +10,7 @@ interface GameOverScreenProps {
   career: CareerRecords;
   onPlayAgain: () => void;
   onReturnTitle: () => void;
+  onOpenFeedback?: () => void;
 }
 
 export const GameOverScreen: React.FC<GameOverScreenProps> = ({
@@ -18,6 +19,7 @@ export const GameOverScreen: React.FC<GameOverScreenProps> = ({
   career,
   onPlayAgain,
   onReturnTitle,
+  onOpenFeedback,
 }) => {
   const [view, setView] = useState<'summary' | 'leaderboard'>('summary');
 
@@ -146,6 +148,17 @@ export const GameOverScreen: React.FC<GameOverScreenProps> = ({
               <Trophy className="w-4 h-4" />
               <span>{view === 'summary' ? 'View Leaderboard' : 'View Summary'}</span>
             </button>
+            {onOpenFeedback && (
+              <button
+                type="button"
+                onClick={onOpenFeedback}
+                className="inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-[4px] bg-[#06b6d4]/10 border border-[#06b6d4]/40 text-[#4cd7f6] font-display text-sm font-semibold hover:bg-[#06b6d4]/20 transition-colors whitespace-nowrap cursor-pointer"
+                title="Send developer feedback"
+              >
+                <MessageSquare className="w-4 h-4" />
+                <span>Feedback</span>
+              </button>
+            )}
             <button
               type="button"
               onClick={onReturnTitle}
