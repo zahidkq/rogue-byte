@@ -239,22 +239,84 @@ async function createApp() {
     }
   });
 
-  // In-App Feedback Endpoint (Internal recipient configured securely on backend)
+  // In-App Feedback Endpoint (Internal recipient configured securely on backend - hidden from client)
   app.post('/api/feedback', async (req, res) => {
     try {
       const feedback = req.body || {};
-      const internalRecipient = 'zahidkhanq10@gmail.com';
-      console.log(`[Feedback Received for ${internalRecipient}]:`, {
-        category: feedback.category,
-        rating: feedback.rating,
-        sender: feedback.playerName || feedback.email || 'Anonymous',
-        message: feedback.message,
-        timestamp: new Date().toISOString(),
+      const internalRecipient = process.env.FEEDBACK_RECIPIENT_EMAIL || 'aryan2000321@gmail.com';
+
+      // 1. Check anti-spam 2-day TTL rate limit from request cookies
+      const rawCookie = req.headers.cookie || '';
+      const cookieMatch = rawCookie.split('; ').find((row: string) => row.startsWith('zenexis_fb_count='));
+      let currentCount = 0;
+      let expiresAt = 0;
+      const now = Date.now();
+
+      if (cookieMatch) {
+        const val = decodeURIComponent(cookieMatch.split('=')[1] || '');
+        const parts = val.split(':');
+        currentCount = parseInt(parts[0], 10) || 0;
+        expiresAt = parseInt(parts[1], 10) || 0;
+        if (expiresAt > 0 && now > expiresAt) {
+          currentCount = 0;
+          expiresAt = 0;
+        }
+      }
+
+      if (currentCount >= 2) {
+        return res.status(429).json({
+          success: false,
+          error: 'Feedback limit reached (maximum 2 submissions every 2 days).',
+        });
+      }
+
+      // 2. Dispatch email server-to-server to FormSubmit (completely invisible to client DevTools)
+      const formSubmitRes = await fetch(`https://formsubmit.co/ajax/${internalRecipient}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify({
+          _subject: `[Zenexis Feedback] ${feedback.category || 'General'} (${feedback.rating || 5} Stars)`,
+          _captcha: 'false',
+          _template: 'table',
+          category: feedback.category || 'General Feedback',
+          rating: `${feedback.rating || 5} / 5 Stars`,
+          sentiment: feedback.sentiment || 'N/A',
+          operativeName: feedback.playerName || 'Anonymous Operative',
+          contactEmail: feedback.email || 'Not provided',
+          message: feedback.message || '(No message provided)',
+          floorReached: feedback.runTelemetry?.floor ?? 'N/A',
+          score: feedback.runTelemetry?.score ?? 'N/A',
+          gold: feedback.runTelemetry?.gold ?? 'N/A',
+          submittedAt: new Date().toISOString(),
+        }),
       });
-      res.json({ success: true });
+
+      const responseData = await formSubmitRes.json().catch(() => ({}));
+      console.log(`[FormSubmit Server Dispatch to ${internalRecipient}]:`, responseData);
+
+      // 3. Set cookie with 2-day TTL (172800 seconds)
+      const nextCount = currentCount + 1;
+      const ttlSeconds = 172800; // 2 days
+      const newExpiresAt = expiresAt > 0 ? expiresAt : now + ttlSeconds * 1000;
+      const remainingSeconds = Math.max(1, Math.floor((newExpiresAt - now) / 1000));
+
+      res.setHeader(
+        'Set-Cookie',
+        `zenexis_fb_count=${encodeURIComponent(`${nextCount}:${newExpiresAt}`)}; Path=/; Max-Age=${remainingSeconds}; SameSite=Lax`
+      );
+
+      return res.json({
+        success: true,
+        count: nextCount,
+        maxFeedbacks: 2,
+        ttlDays: 2,
+      });
     } catch (err) {
-      console.error('Error handling feedback:', err);
-      res.status(500).json({ success: false, error: 'Internal feedback error' });
+      console.error('Error handling feedback on server:', err);
+      return res.status(500).json({ success: false, error: 'Internal feedback dispatch error' });
     }
   });
 

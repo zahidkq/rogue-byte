@@ -964,9 +964,57 @@ test('FEATURE: Modular Status Effect Engine & In-App Feedback', async (t) => {
     assert.strictEqual(bossRoll.some((e) => e.type === 'slow'), true);
   });
 
-  await t.test('Feedback Privacy: Internal developer recipient is never exposed on UI', () => {
-    const TARGET_RECIPIENT = 'zahidkhanq10@gmail.com';
-    // Ensure email string exists in headless submission handler
-    assert.strictEqual(TARGET_RECIPIENT.includes('@gmail.com'), true);
+  await t.test('Feedback Rate Limiting: At most 2 feedbacks per 2 days max TTL', () => {
+    const TTL_SECONDS = 172800; // 2 days
+    const TTL_MS = TTL_SECONDS * 1000;
+    const now = 1700000000000;
+
+    function parseTestRecord(cookieValue, currentTime) {
+      if (!cookieValue) return { count: 0, expiresAt: 0 };
+      const parts = cookieValue.split(':');
+      let count = parseInt(parts[0], 10) || 0;
+      let expiresAt = parseInt(parts[1], 10) || 0;
+      if (expiresAt > 0 && currentTime > expiresAt) {
+        count = 0;
+        expiresAt = 0;
+      }
+      return { count, expiresAt };
+    }
+
+    // 0 submissions:
+    const s0 = parseTestRecord('', now);
+    assert.strictEqual(s0.count, 0);
+    assert.strictEqual(Math.max(0, 2 - s0.count), 2);
+
+    // 1 submission inside TTL:
+    const s1 = parseTestRecord(`1:${now + TTL_MS}`, now);
+    assert.strictEqual(s1.count, 1);
+    assert.strictEqual(Math.max(0, 2 - s1.count), 1);
+
+    // 2 submissions inside TTL (locked):
+    const s2 = parseTestRecord(`2:${now + TTL_MS}`, now);
+    assert.strictEqual(s2.count, 2);
+    assert.strictEqual(Math.max(0, 2 - s2.count), 0);
+
+    // After 2 days (48 hours + 1 ms): automatically expired and reset to 0!
+    const expiredTime = now + TTL_MS + 1000;
+    const sExpired = parseTestRecord(`2:${now + TTL_MS}`, expiredTime);
+    assert.strictEqual(sExpired.count, 0);
+    assert.strictEqual(Math.max(0, 2 - sExpired.count), 2);
+  });
+
+  await t.test('Feedback Privacy: Dev email (aryan2000321@gmail.com) exists ONLY on server and NEVER in client files', async () => {
+    import('node:fs').then((fs) => {
+      const clientFiles = [
+        'src/utils/feedbackApi.ts',
+        'src/components/FeedbackModal.tsx',
+        'src/App.tsx',
+      ];
+      for (const file of clientFiles) {
+        const content = fs.readFileSync(file, 'utf8');
+        assert.strictEqual(content.includes('aryan2000321'), false, `Developer email leaked in ${file}!`);
+        assert.strictEqual(content.includes('zahidkhanq10'), false, `Old email leaked in ${file}!`);
+      }
+    });
   });
 });

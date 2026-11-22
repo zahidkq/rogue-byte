@@ -4,12 +4,18 @@ import {
   CheckCircle2,
   Heart,
   Loader2,
+  Lock,
   MessageSquare,
   Send,
   Star,
   X,
 } from 'lucide-react';
-import { submitFeedback } from '../utils/feedbackApi';
+import {
+  canSubmitFeedback,
+  getRemainingFeedbacks,
+  MAX_FEEDBACKS_PER_WINDOW,
+  submitFeedback,
+} from '../utils/feedbackApi';
 
 interface FeedbackModalProps {
   onClose: () => void;
@@ -44,6 +50,9 @@ export const FeedbackModal: React.FC<FeedbackModalProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [remaining, setRemaining] = useState<number>(() => getRemainingFeedbacks());
+
+  const isLimitReached = remaining <= 0;
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -63,13 +72,18 @@ export const FeedbackModal: React.FC<FeedbackModalProps> = ({
       return;
     }
 
+    if (!canSubmitFeedback()) {
+      setErrorMsg('Submission limit reached (maximum 2 submissions every 2 days).');
+      return;
+    }
+
     setIsSubmitting(true);
     setErrorMsg(null);
 
     const sentiment = EMOJI_SENTIMENTS.find((s) => s.rating === rating)?.label;
 
     try {
-      await submitFeedback({
+      const result = await submitFeedback({
         rating,
         sentiment,
         category,
@@ -79,9 +93,14 @@ export const FeedbackModal: React.FC<FeedbackModalProps> = ({
         runTelemetry,
       });
 
-      setIsSubmitted(true);
+      if (result.success) {
+        setIsSubmitted(true);
+        setRemaining(getRemainingFeedbacks());
+      } else {
+        setErrorMsg(result.message || 'Submission could not be completed. Please try again.');
+      }
     } catch {
-      setErrorMsg('Submission encountered an error. Please try again.');
+      setErrorMsg('Submission encountered a network error. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
@@ -109,14 +128,27 @@ export const FeedbackModal: React.FC<FeedbackModalProps> = ({
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-1.5 rounded-[4px] bg-[#060e20] border border-white/10 text-[#a08e7a] hover:text-[#dae2fd] transition-colors cursor-pointer"
-            aria-label="Close dialog"
-          >
-            <X className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-2">
+            <span
+              className={`text-[10px] font-mono px-2 py-0.5 rounded-[3px] border ${
+                remaining > 1
+                  ? 'bg-[#10b981]/15 border-[#10b981]/40 text-[#6ee7b7]'
+                  : remaining === 1
+                  ? 'bg-[#f59e0b]/15 border-[#f59e0b]/40 text-[#ffc174]'
+                  : 'bg-[#ef4444]/15 border-[#ef4444]/40 text-[#ffb4ab]'
+              }`}
+            >
+              {remaining} of {MAX_FEEDBACKS_PER_WINDOW} left (2-day window)
+            </span>
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-1.5 rounded-[4px] bg-[#060e20] border border-white/10 text-[#a08e7a] hover:text-[#dae2fd] transition-colors cursor-pointer"
+              aria-label="Close dialog"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         {/* Content */}
@@ -134,12 +166,36 @@ export const FeedbackModal: React.FC<FeedbackModalProps> = ({
                 <p className="text-xs sm:text-sm text-[#6ee7b7] max-w-sm leading-relaxed">
                   Thank you for playing Zenexis! Your feedback has been sent directly to the development team.
                 </p>
+                <p className="text-[11px] font-mono text-[#a08e7a] mt-1">
+                  Remaining submissions in active 2-day period: {remaining} of {MAX_FEEDBACKS_PER_WINDOW}
+                </p>
               </div>
 
               <button
                 type="button"
                 onClick={onClose}
                 className="mt-2 px-6 py-2 rounded-[4px] bg-[#06b6d4]/20 border border-[#06b6d4] text-[#4cd7f6] font-display text-xs font-bold uppercase tracking-wide hover:bg-[#06b6d4]/30 transition-all cursor-pointer"
+              >
+                Back to Game
+              </button>
+            </div>
+          ) : isLimitReached ? (
+            <div className="py-8 flex flex-col items-center justify-center text-center gap-3 animate-in fade-in duration-200">
+              <div className="w-12 h-12 rounded-full bg-[#f59e0b]/20 border border-[#f59e0b]/50 flex items-center justify-center shadow-[0_0_16px_rgba(245,158,11,0.25)]">
+                <Lock className="w-6 h-6 text-[#ffc174]" />
+              </div>
+
+              <h3 className="font-display text-base sm:text-lg font-bold text-[#dae2fd]">
+                Feedback Limit Reached
+              </h3>
+              <p className="text-xs sm:text-sm text-[#a08e7a] max-w-sm leading-relaxed">
+                You have submitted the maximum of {MAX_FEEDBACKS_PER_WINDOW} field reports allowed per 2-day window. Our development team has received your input! The cooldown counter will reset automatically after 2 days.
+              </p>
+
+              <button
+                type="button"
+                onClick={onClose}
+                className="mt-3 px-6 py-2 rounded-[4px] bg-[#131b2e] border border-white/15 text-[#dae2fd] text-xs font-mono hover:border-white/30 transition-colors cursor-pointer"
               >
                 Back to Game
               </button>
